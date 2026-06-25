@@ -1,0 +1,45 @@
+<idea-plugin>
+    <id>com.qrowsolutions.stack-doctor</id>
+    <name>Stack Doctor</name>
+    <vendor email="qrowsolutions@gmail.com" url="https://github.com/Wayto0blivion/Stack-Doctor">Qrow Solutions</vendor>
+
+    <description><![CDATA[
+        <h2>Stack Doctor — Docker Compose service map &amp; network doctor</h2>
+        <p>
+            Turns a <code>docker-compose.yml</code> into a visual <b>service dependency map</b> and runs
+            a set of <b>"doctor" checks</b> for the networking mistakes that waste hours:
+        </p>
+        <ul>
+            <li>Service dependency graph (<code>depends_on</code> / shared networks)</li>
+            <li>Ports published to <code>127.0.0.1</code> that won't be reachable from other devices</li>
+            <li>Missing healthchecks on services other containers depend on</li>
+            <li>Suspicious / non-existent host volume paths</li>
+            <li><code>depends_on</code> pointing at services that don't exist, and dependency cycles</li>
+            <li>Missing <code>env_file</code> references</li>
+            <li>Ports that are <code>expose</code>d internally vs actually published</li>
+        </ul>
+        <p>Open the <b>Stack Doctor</b> tool window to see the map and the diagnosis for any Compose file in your project.</p>
+    ]]></description>
+
+    <!-- Provided by all JetBrains IDEs -->
+    <depends>com.intellij.modules.platform</depends>
+    <depends>org.jetbrains.plugins.yaml</depends>
+
+    <extensions defaultExtensionNs="com.intellij">
+        <toolWindow
+            id="Stack Doctor"
+            anchor="right"
+            icon="/icons/toolWindow.svg"
+            factoryClass="com.qrowsolutions.stackdoctor.ui.StackDoctorToolWindowFactory"/>
+
+        <notificationGroup id="Stack Doctor" displayType="BALLOON"/>
+    </extensions>
+
+    <actions>
+        <action
+            id="StackDoctor.Refresh"
+            class="com.qrowsolutions.stackdoctor.actions.RefreshAction"
+            text="Refresh Stack Doctor"
+            description="Re-scan the project for Compose files and re-run diagnostics."/>
+    </actions>
+</idea-plugin>

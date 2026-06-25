@@ -1,0 +1,49 @@
+# Sample stack used to exercise Stack Doctor. It intentionally contains several
+# of the problems the doctor detects (loopback-bound port, missing healthcheck,
+# undeclared volume, missing env_file, bad bind path, proxy with no ports).
+services:
+  proxy:
+    image: nginx:alpine
+    # No published ports -> nothing outside the compose network can reach the proxy.
+    depends_on:
+      - frontend
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "3000:3000"
+    environment:
+      - API_URL=http://backend:8000
+    depends_on:
+      - backend
+
+  backend:
+    build: ./backend
+    ports:
+      # Bound to localhost: works on this machine, unreachable from other devices.
+      - "127.0.0.1:8000:8000"
+    env_file:
+      - ./backend.env        # referenced but missing on disk
+    volumes:
+      - ./data/uploads:/app/uploads   # bind path does not exist
+    depends_on:
+      - database
+      - cache
+
+  database:
+    image: postgres:16
+    # No healthcheck, but backend depends on it.
+    environment:
+      POSTGRES_PASSWORD: example
+    volumes:
+      - pgdata:/var/lib/postgresql/data   # 'pgdata' is not declared below
+
+  cache:
+    image: redis:7
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+
+networks:
+  default:
+    driver: bridge
