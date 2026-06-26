@@ -1,2 +1,16 @@
-# Auto detect text files and perform LF normalization
-* text=auto
+# Normalize all text files to LF in the repository; Git checks them out with the
+# platform's native line endings. This prevents CRLF/LF churn between machines.
+* text=auto eol=lf
+
+# Scripts that must keep specific endings regardless of platform.
+*.bat   text eol=crlf
+*.cmd   text eol=crlf
+gradlew text eol=lf
+
+# Binary files Git should never line-ending-convert or text-diff.
+*.jar   binary
+*.zip   binary
+*.png   binary
+*.jpg   binary
+*.gif   binary
+*.ico   binary

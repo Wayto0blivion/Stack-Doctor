@@ -1,0 +1,17 @@
+<html>
+<body>
+Reports Docker Compose networking and configuration mistakes directly in the compose file —
+the same checks shown in the <b>Stack Doctor</b> tool window, anchored to the exact line they
+concern.
+<p>
+    Findings include <code>depends_on</code> targets that don't exist, dependency cycles, host
+    port conflicts, ports bound to <code>127.0.0.1</code> (unreachable from other devices),
+    services depended on without a healthcheck, undeclared named volumes and networks, missing
+    bind-mount paths and <code>env_file</code>s, and reverse proxies that publish no ports.
+</p>
+<p>
+    Quick-fixes are offered where one is unambiguous: publishing a loopback-bound port on all
+    interfaces, and declaring a missing named volume or network under the top-level section.
+</p>
+</body>
+</html>

@@ -10,10 +10,15 @@ WebStorm, GoLand, RubyMine, and more.
 
 Open the **Stack Doctor** tool window (right-hand side) and pick a compose file. You get:
 
-- **Service dependency graph** — services laid out by dependency layer, with arrows for
-  `depends_on` (and legacy `links`), health/port badges, and a severity tint on problem services.
+- **Service dependency graph** — services laid out by dependency layer, with curved arrows for
+  `depends_on` (and legacy `links`), category accents, health/port badges, hover highlighting, and a
+  severity tint on problem services. **Click a node** for a line-by-line breakdown of that service's
+  config (with plain-English explanations and its findings); **double-click** to jump to it in the editor.
 - **Diagnostics** — a linked list of findings. Selecting one highlights the service in the graph
   and vice-versa.
+- **Inline inspections** — the same checks run directly in the compose-file editor, highlighting the
+  exact line, with quick-fixes (publish a loopback port on all interfaces, declare a missing named
+  volume/network) and navigation.
 
 ### Checks in v1
 
@@ -45,7 +50,7 @@ Install the resulting zip via **Settings → Plugins → ⚙ → Install Plugin 
 
 ## Roadmap
 
-- Inline inspections on the compose file itself (with quick-fixes and navigation)
+- ~~Inline inspections on the compose file itself (with quick-fixes and navigation)~~ ✅ shipped
 - "Ports exposed vs. actually used in code" by scanning source
 - Deeper reverse-proxy checks (upstream hostnames, missing `depends_on`)
 - `.env` value resolution per container

@@ -33,6 +33,15 @@
             factoryClass="com.qrowsolutions.stackdoctor.ui.StackDoctorToolWindowFactory"/>
 
         <notificationGroup id="Stack Doctor" displayType="BALLOON"/>
+
+        <localInspection
+            language="yaml"
+            shortName="StackDoctorCompose"
+            displayName="Docker Compose problems (Stack Doctor)"
+            groupName="Docker"
+            enabledByDefault="true"
+            level="WARNING"
+            implementationClass="com.qrowsolutions.stackdoctor.inspection.ComposeDoctorInspection"/>
     </extensions>
 
     <actions>

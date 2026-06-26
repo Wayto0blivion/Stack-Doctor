@@ -5,3 +5,6 @@ out/
 *.iml
 .kotlin/
 .qodana/
+
+# IntelliJ Platform Gradle plugin cache + runIde/test sandbox (generated)
+.intellijPlatform/

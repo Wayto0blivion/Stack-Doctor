@@ -1,8 +1,10 @@
 package com.qrowsolutions.stackdoctor
 
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
+import com.qrowsolutions.stackdoctor.analysis.ServiceExplainer
 import com.qrowsolutions.stackdoctor.diagnostics.Severity
 import com.qrowsolutions.stackdoctor.diagnostics.StackDoctor
+import com.qrowsolutions.stackdoctor.inspection.ComposeQuickFixes
 import com.qrowsolutions.stackdoctor.parser.ComposeParser
 import org.jetbrains.yaml.psi.YAMLFile
 
@@ -75,6 +77,34 @@ class ComposeParserTest : BasePlatformTestCase() {
         """.trimIndent()
         val diags = StackDoctor.run(parse(cyclic), baseDir = null)
         assertTrue(diags.any { it.id == "dependency-cycle" && it.severity == Severity.ERROR })
+    }
+
+    fun testDiagnosticsCarryAnchors() {
+        val project = parse(sample)
+        val diags = StackDoctor.run(project, baseDir = null)
+        val loopback = diags.single { it.id == "loopback-bound-port" }
+        assertEquals("backend", loopback.anchor?.service)
+        assertEquals("ports", loopback.anchor?.key)
+        assertEquals("127.0.0.1:8000:8000", loopback.anchor?.value)
+
+        val unknown = diags.single { it.id == "unknown-depends-on" }
+        assertEquals("ghost", unknown.anchor?.value)
+        assertEquals("depends_on", unknown.anchor?.key)
+    }
+
+    fun testStripHostIp() {
+        assertEquals("8000:8000", ComposeQuickFixes.stripHostIp("127.0.0.1:8000:8000"))
+        assertEquals("8000:8000/tcp", ComposeQuickFixes.stripHostIp("127.0.0.1:8000:8000/tcp"))
+        assertEquals("8080:80", ComposeQuickFixes.stripHostIp("8080:80"))
+        assertEquals("80", ComposeQuickFixes.stripHostIp("80"))
+    }
+
+    fun testExplainerBreaksDownService() {
+        val project = parse(sample)
+        val lines = ServiceExplainer.explain(project.service("backend")!!)
+        assertTrue("has an image line", lines.any { it.label == "image" && it.value == "myapp:latest" })
+        assertTrue("explains the loopback port", lines.any { it.label == "port" && it.explanation.contains("not from other") })
+        assertTrue("lists dependencies", lines.any { it.label == "depends_on" })
     }
 
     fun testDetectsPortConflict() {

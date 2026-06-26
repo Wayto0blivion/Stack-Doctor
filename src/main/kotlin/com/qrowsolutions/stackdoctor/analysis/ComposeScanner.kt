@@ -41,7 +41,7 @@ object ComposeScanner {
             .sortedWith(compareByDescending<VirtualFile> { it.name in CANONICAL_NAMES }.thenBy { it.path })
     }
 
-    private fun isComposeName(name: String): Boolean {
+    fun isComposeName(name: String): Boolean {
         val lower = name.lowercase()
         if (lower in CANONICAL_NAMES) return true
         return lower.contains("compose") && (lower.endsWith(".yml") || lower.endsWith(".yaml"))

@@ -2,10 +2,14 @@ package com.qrowsolutions.stackdoctor.ui
 
 import com.intellij.icons.AllIcons
 import com.intellij.openapi.application.ApplicationManager
-import com.intellij.openapi.fileEditor.FileEditorManager
+import com.intellij.openapi.application.ReadAction
+import com.intellij.openapi.fileEditor.OpenFileDescriptor
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.ComboBox
 import com.intellij.openapi.vfs.VirtualFile
+import com.intellij.psi.PsiManager
+import com.qrowsolutions.stackdoctor.parser.ComposePsi
+import org.jetbrains.yaml.psi.YAMLFile
 import com.intellij.ui.ColoredListCellRenderer
 import com.intellij.ui.OnePixelSplitter
 import com.intellij.ui.SimpleTextAttributes
@@ -123,9 +127,12 @@ class StackDoctorPanel(private val project: Project) : JPanel(BorderLayout()) {
             return
         }
         // Graph.
-        val panel = ServiceGraphPanel(analysis.graph, analysis.diagnostics) { service ->
-            selectFirstDiagnosticFor(service)
-        }
+        val panel = ServiceGraphPanel(
+            analysis.graph,
+            analysis.diagnostics,
+            onSelect = { service -> selectFirstDiagnosticFor(service) },
+            onActivate = { service -> openServiceInEditor(service) },
+        )
         graphPanel = panel
         graphHost.removeAll()
         graphHost.add(panel, BorderLayout.CENTER)
@@ -171,13 +178,15 @@ class StackDoctorPanel(private val project: Project) : JPanel(BorderLayout()) {
         diagList.clearSelection()
     }
 
-    /** Opens the compose file in the editor; double-click on a diagnostic could call this later. */
-    @Suppress("unused")
-    private fun openFileInEditor() {
-        currentAnalysis ?: return
-        (fileCombo.selectedItem as? VirtualFile)?.let {
-            FileEditorManager.getInstance(project).openFile(it, true)
+    /** Opens the current compose file in the editor, scrolled to the given service's declaration. */
+    private fun openServiceInEditor(service: String) {
+        val file = fileCombo.selectedItem as? VirtualFile ?: return
+        val offset = ReadAction.compute<Int?, RuntimeException> {
+            if (project.isDisposed || !file.isValid) return@compute null
+            val yamlFile = PsiManager.getInstance(project).findFile(file) as? YAMLFile ?: return@compute null
+            ComposePsi.serviceKeyValue(yamlFile, service)?.textOffset
         }
+        OpenFileDescriptor(project, file, offset ?: 0).navigate(true)
     }
 
     private fun composeFileRenderer() = object : ColoredListCellRenderer<VirtualFile>() {

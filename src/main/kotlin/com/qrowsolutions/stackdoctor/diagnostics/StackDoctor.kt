@@ -45,6 +45,7 @@ object StackDoctor {
                         detail = "Service '${svc.name}' depends on '$dep', which is not defined in this " +
                             "compose file. Compose will fail to start with \"service '$dep' not found\".",
                         hint = "Fix the name or define the '$dep' service.",
+                        anchor = DiagnosticAnchor(svc.name, "depends_on", dep),
                     )
                 }
             }
@@ -54,6 +55,7 @@ object StackDoctor {
     private fun checkCycles(graph: ServiceGraph, out: MutableList<Diagnostic>) {
         for (cycle in graph.findCycles()) {
             val path = (cycle + cycle.first()).joinToString(" → ")
+            val nextInCycle = cycle.getOrNull(1) ?: cycle.first()
             out += Diagnostic(
                 id = "dependency-cycle",
                 severity = Severity.ERROR,
@@ -62,6 +64,7 @@ object StackDoctor {
                 detail = "These services depend on each other in a loop, so Compose cannot determine a " +
                     "valid startup order.",
                 hint = "Break the cycle by removing one of the depends_on edges.",
+                anchor = DiagnosticAnchor(cycle.first(), "depends_on", nextInCycle),
             )
         }
     }
@@ -84,6 +87,7 @@ object StackDoctor {
                     "'depends_on: { condition: service_healthy }' can't be used and dependents may start " +
                     "before '${svc.name}' is actually ready.",
                 hint = "Add a healthcheck so dependents can wait for it to be ready.",
+                anchor = DiagnosticAnchor(svc.name),
             )
         }
     }
@@ -102,6 +106,7 @@ object StackDoctor {
                             "usual cause of \"works locally but I can't reach it from my phone/other PC\".",
                         hint = "Drop the ${port.hostIp} prefix (use '${port.hostPort}:${port.containerPort}') " +
                             "to publish on all interfaces.",
+                        anchor = DiagnosticAnchor(svc.name, "ports", port.raw),
                     )
                 }
             }
@@ -109,26 +114,29 @@ object StackDoctor {
     }
 
     private fun checkPortConflicts(project: ComposeProject, out: MutableList<Diagnostic>) {
-        // Map "ip:port/proto" -> services that publish it.
-        val byBinding = HashMap<String, MutableList<String>>()
+        // Map "ip:port/proto" -> the (service, raw port) entries that publish it.
+        val byBinding = HashMap<String, MutableList<Pair<String, String>>>()
         for (svc in project.services) {
             for (port in svc.ports) {
                 if (!port.isPublished) continue
                 val key = "${port.hostIp ?: "0.0.0.0"}:${port.hostPort}/${port.protocol}"
-                byBinding.getOrPut(key) { mutableListOf() }.add(svc.name)
+                byBinding.getOrPut(key) { mutableListOf() }.add(svc.name to port.raw)
             }
         }
-        for ((binding, services) in byBinding) {
-            if (services.size > 1) {
+        for ((binding, entries) in byBinding) {
+            if (entries.size > 1) {
+                val services = entries.map { it.first }
+                val first = entries.first()
                 out += Diagnostic(
                     id = "port-conflict",
                     severity = Severity.ERROR,
-                    service = services.first(),
+                    service = first.first,
                     title = "Host port conflict on $binding",
                     detail = "Services ${services.joinToString(", ")} all publish host binding $binding. " +
                         "Only one container can own a host port; the others will fail to start with " +
                         "\"port is already allocated\".",
                     hint = "Give each service a distinct host port.",
+                    anchor = DiagnosticAnchor(first.first, "ports", first.second),
                 )
             }
         }
@@ -147,6 +155,7 @@ object StackDoctor {
                         detail = "Service '${svc.name}' mounts named volume '$src', but it isn't listed under the " +
                             "top-level 'volumes:' key. Compose requires named volumes to be declared.",
                         hint = "Add '$src:' under the top-level 'volumes:' section.",
+                        anchor = DiagnosticAnchor(svc.name, "volumes", src),
                     )
                 }
             }
@@ -165,6 +174,7 @@ object StackDoctor {
                         detail = "Service '${svc.name}' joins network '$net', which isn't defined under the " +
                             "top-level 'networks:' key.",
                         hint = "Declare '$net:' under the top-level 'networks:' section.",
+                        anchor = DiagnosticAnchor(svc.name, "networks", net),
                     )
                 }
             }
@@ -189,6 +199,7 @@ object StackDoctor {
                             "which is not present on disk. Docker will create it as an empty root-owned " +
                             "directory, which often surfaces as missing config or permission errors.",
                         hint = "Create the path or fix the relative path in the compose file.",
+                        anchor = DiagnosticAnchor(svc.name, "volumes", src),
                     )
                 }
             }
@@ -210,6 +221,7 @@ object StackDoctor {
                         detail = "Service '${svc.name}' references env_file '$envFile' (resolved to " +
                             "'${resolved.path}'), which doesn't exist. The referenced variables will be empty.",
                         hint = "Create the env file or correct the path.",
+                        anchor = DiagnosticAnchor(svc.name, "env_file", envFile),
                     )
                 }
             }
@@ -229,6 +241,7 @@ object StackDoctor {
                     "nothing outside the Compose network can reach it. A proxy is normally the one service " +
                     "that should publish 80/443.",
                 hint = "Add a 'ports:' entry (e.g. '80:80' and '443:443').",
+                anchor = DiagnosticAnchor(svc.name),
             )
         }
     }
