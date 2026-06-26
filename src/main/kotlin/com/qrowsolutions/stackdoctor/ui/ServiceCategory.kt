@@ -7,13 +7,13 @@ import com.qrowsolutions.stackdoctor.model.ComposeService
  * A rough classification of a service from its name/image, used only for the graph's colour accent
  * and glyph. Best-effort and cosmetic — an unrecognised service is simply [GENERIC].
  */
-enum class ServiceCategory(val glyph: String, val accent: JBColor) {
-    DATABASE("DB", StackDoctorColors.ACCENT_DATABASE),
-    CACHE("◆", StackDoctorColors.ACCENT_CACHE),
-    PROXY("⇄", StackDoctorColors.ACCENT_PROXY),
-    QUEUE("✉", StackDoctorColors.ACCENT_QUEUE),
-    WEB("⬢", StackDoctorColors.ACCENT_WEB),
-    GENERIC("●", StackDoctorColors.ACCENT_GENERIC);
+enum class ServiceCategory(val glyph: String, val accent: JBColor, val description: String) {
+    DATABASE("DB", StackDoctorColors.ACCENT_DATABASE, "Persistent data store — Postgres, MySQL, Mongo, ClickHouse and the like."),
+    CACHE("◆", StackDoctorColors.ACCENT_CACHE, "In-memory cache or fast key-value store such as Redis, Valkey or Memcached."),
+    PROXY("⇄", StackDoctorColors.ACCENT_PROXY, "Reverse proxy, load balancer or gateway routing traffic — nginx, Traefik, Caddy, Envoy."),
+    QUEUE("✉", StackDoctorColors.ACCENT_QUEUE, "Message broker or task queue — RabbitMQ, Kafka, NATS, Celery and friends."),
+    WEB("⬢", StackDoctorColors.ACCENT_WEB, "Your own app code — a web frontend, API, backend or worker."),
+    GENERIC("●", StackDoctorColors.ACCENT_GENERIC, "A service that didn't match any of the known categories above.");
 
     companion object {
         private val DATABASE_HINTS = listOf(

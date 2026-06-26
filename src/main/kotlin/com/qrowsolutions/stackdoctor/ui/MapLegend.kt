@@ -16,8 +16,11 @@ object MapLegend {
         section(sb, "Nodes", fg)
         row(sb, swatch(StackDoctorColors.ACCENT_FILE, "❐"), "Compose file", "A root node — its services branch off to the right.", muted)
         for (cat in ServiceCategory.entries) {
-            row(sb, swatch(cat.accent, cat.glyph), "${title(cat)} service", "Best-effort category from the name/image; cosmetic only.", muted)
+            row(sb, swatch(cat.accent, cat.glyph), "${title(cat)} service", cat.description, muted)
         }
+        sb.append("<div style='color:$muted;font-size:88%;margin:3px 0 0 16px;font-style:italic;'>")
+        sb.append("Categories are a best-effort guess from the name/image — cosmetic only.")
+        sb.append("</div>")
 
         section(sb, "Connections", fg)
         row(sb, line(StackDoctorColors.EDGE, "──▶"), "depends_on", "Solid arrow points at the dependency that should start / be healthy first.", muted)
