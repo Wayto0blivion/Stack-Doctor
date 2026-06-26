@@ -21,6 +21,16 @@
         <p>Open the <b>Stack Doctor</b> tool window to see the map and the diagnosis for any Compose file in your project.</p>
     ]]></description>
 
+    <change-notes><![CDATA[
+        <h3>0.1.0</h3>
+        <ul>
+            <li>Initial release: whole-project Compose service map with dependency layout.</li>
+            <li>Ten networking "doctor" checks, surfaced inline and in the tool window.</li>
+            <li>Context-aware healthcheck generation (bulk, per-service, and as a quick-fix).</li>
+            <li>Map colours now follow the active IDE theme.</li>
+        </ul>
+    ]]></change-notes>
+
     <!-- Provided by all JetBrains IDEs -->
     <depends>com.intellij.modules.platform</depends>
     <depends>org.jetbrains.plugins.yaml</depends>

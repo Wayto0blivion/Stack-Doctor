@@ -8,3 +8,9 @@ out/
 
 # IntelliJ Platform Gradle plugin cache + runIde/test sandbox (generated)
 .intellijPlatform/
+
+# Plugin-signing secrets — never commit these (kept outside the repo by default)
+*.pem
+*.crt
+*.p12
+certificate/

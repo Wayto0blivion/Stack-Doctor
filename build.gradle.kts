@@ -1,5 +1,6 @@
 import org.jetbrains.intellij.platform.gradle.IntelliJPlatformType
 import org.jetbrains.intellij.platform.gradle.TestFrameworkType
+import java.io.File
 
 plugins {
     id("java")
@@ -58,6 +59,24 @@ intellijPlatform {
         ides {
             recommended()
         }
+    }
+
+    // Author-side signing. Paths and the key passphrase are read from environment variables so no
+    // secret ever lands in the repo. Reuse the SAME key + certificate for every future update.
+    //   CERTIFICATE_CHAIN_FILE  → absolute path to chain.crt
+    //   PRIVATE_KEY_FILE        → absolute path to private.pem
+    //   PRIVATE_KEY_PASSWORD    → the key's passphrase
+    // Run: ./gradlew signPlugin   (then verifyPluginSignature)
+    signing {
+        certificateChainFile = layout.file(providers.environmentVariable("CERTIFICATE_CHAIN_FILE").map { File(it) })
+        privateKeyFile = layout.file(providers.environmentVariable("PRIVATE_KEY_FILE").map { File(it) })
+        password = providers.environmentVariable("PRIVATE_KEY_PASSWORD")
+    }
+
+    // Marketplace upload. PUBLISH_TOKEN comes from your Marketplace profile → My Tokens.
+    // Run: ./gradlew publishPlugin
+    publishing {
+        token = providers.environmentVariable("PUBLISH_TOKEN")
     }
 }
 
