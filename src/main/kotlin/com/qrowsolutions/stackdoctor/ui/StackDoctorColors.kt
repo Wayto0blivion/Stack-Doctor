@@ -28,6 +28,9 @@ object StackDoctorColors {
     val ERROR_TEXT = JBColor(Color(0xC0392B), Color(0xE57373))
     val OK_TEXT = JBColor(Color(0x2E8B57), Color(0x6FCF97))
 
+    // Accent for compose-file (root) nodes in the map.
+    val ACCENT_FILE = JBColor(Color(0x4C6EF5), Color(0x6B8AFD))
+
     // Category accent bar painted down the left edge of each node.
     val ACCENT_DATABASE = JBColor(Color(0x8E5BD0), Color(0xB084E6))
     val ACCENT_CACHE = JBColor(Color(0xD08A3E), Color(0xE3A862))

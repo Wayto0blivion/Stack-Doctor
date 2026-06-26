@@ -4,7 +4,9 @@ import com.intellij.codeInspection.LocalQuickFix
 import com.intellij.codeInspection.ProblemDescriptor
 import com.intellij.openapi.project.Project
 import com.intellij.psi.PsiDocumentManager
+import com.qrowsolutions.stackdoctor.analysis.HealthcheckGenerator
 import com.qrowsolutions.stackdoctor.diagnostics.Diagnostic
+import com.qrowsolutions.stackdoctor.parser.ComposeParser
 import com.qrowsolutions.stackdoctor.parser.ComposePsi
 import org.jetbrains.yaml.psi.YAMLFile
 import org.jetbrains.yaml.psi.YAMLScalar
@@ -16,6 +18,7 @@ object ComposeQuickFixes {
         "loopback-bound-port" -> arrayOf(PublishOnAllInterfacesFix())
         "undeclared-volume" -> d.anchor?.value?.let { arrayOf<LocalQuickFix>(DeclareTopLevelFix("volumes", it)) } ?: LocalQuickFix.EMPTY_ARRAY
         "undeclared-network" -> d.anchor?.value?.let { arrayOf<LocalQuickFix>(DeclareTopLevelFix("networks", it)) } ?: LocalQuickFix.EMPTY_ARRAY
+        "missing-healthcheck" -> d.service?.let { arrayOf<LocalQuickFix>(AddHealthcheckFix(it)) } ?: LocalQuickFix.EMPTY_ARRAY
         else -> LocalQuickFix.EMPTY_ARRAY
     }
 
@@ -49,6 +52,21 @@ private class PublishOnAllInterfacesFix : LocalQuickFix {
         val replacement = original.replace(scalar.textValue, newValue)
         doc.replaceString(range.startOffset, range.endOffset, replacement)
         PsiDocumentManager.getInstance(project).commitDocument(doc)
+    }
+}
+
+/**
+ * Adds a context-aware `healthcheck:` to a service that is depended on but has none. The probe is
+ * inferred from the service's image/name (and a representative port) by [HealthcheckGenerator].
+ */
+private class AddHealthcheckFix(private val serviceName: String) : LocalQuickFix {
+    override fun getFamilyName(): String = "Add a generated healthcheck"
+
+    override fun applyFix(project: Project, descriptor: ProblemDescriptor) {
+        val file = descriptor.psiElement.containingFile as? YAMLFile ?: return
+        val svc = ComposeParser.parse(file)?.service(serviceName) ?: return
+        val healthcheck = HealthcheckGenerator.generate(svc) ?: return
+        HealthcheckWriter.apply(project, file, listOf(serviceName to healthcheck))
     }
 }
 

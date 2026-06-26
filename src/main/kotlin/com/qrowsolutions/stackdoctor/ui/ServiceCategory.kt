@@ -16,20 +16,28 @@ enum class ServiceCategory(val glyph: String, val accent: JBColor) {
     GENERIC("●", StackDoctorColors.ACCENT_GENERIC);
 
     companion object {
-        private val DATABASE_HINTS = listOf("postgres", "mysql", "mariadb", "mongo", "mssql", "cockroach", "db", "sqlserver", "oracle", "cassandra", "influx")
-        private val CACHE_HINTS = listOf("redis", "memcache", "valkey", "cache")
-        private val PROXY_HINTS = listOf("nginx", "traefik", "caddy", "haproxy", "envoy", "proxy", "gateway")
-        private val QUEUE_HINTS = listOf("rabbit", "kafka", "nats", "mqtt", "queue", "broker", "zookeeper", "pulsar")
-        private val WEB_HINTS = listOf("web", "frontend", "front", "ui", "app", "api", "backend", "server", "nginx-web")
+        private val DATABASE_HINTS = listOf(
+            "postgres", "postgresql", "pgvector", "timescale", "mysql", "mariadb", "percona",
+            "mongo", "mssql", "sqlserver", "oracle", "cockroach", "cassandra", "scylla", "influx",
+            "clickhouse", "couchdb", "rethinkdb", "neo4j", "surreal", "database", "db",
+        )
+        private val CACHE_HINTS = listOf("redis", "valkey", "keydb", "memcache", "dragonfly", "cache")
+        private val PROXY_HINTS = listOf("nginx", "traefik", "caddy", "haproxy", "envoy", "httpd", "proxy", "gateway", "ingress")
+        private val QUEUE_HINTS = listOf("rabbit", "kafka", "nats", "mqtt", "mosquitto", "queue", "broker", "zookeeper", "pulsar", "celery")
+        private val WEB_HINTS = listOf("web", "frontend", "front", "ui", "app", "api", "backend", "server", "worker", "service")
 
         fun of(svc: ComposeService): ServiceCategory {
-            val haystack = "${svc.name} ${svc.image ?: ""}".lowercase()
+            // Match the name and the image separately so a generic image (or a built service with no
+            // image) still gets categorised from a clearly-named service, and vice-versa.
+            val name = svc.name.lowercase()
+            val image = svc.image?.lowercase() ?: ""
+            fun hit(hints: List<String>) = hints.any { it in name || it in image }
             return when {
-                PROXY_HINTS.any { it in haystack } -> PROXY
-                CACHE_HINTS.any { it in haystack } -> CACHE
-                DATABASE_HINTS.any { it in haystack } -> DATABASE
-                QUEUE_HINTS.any { it in haystack } -> QUEUE
-                WEB_HINTS.any { it in haystack } -> WEB
+                hit(PROXY_HINTS) -> PROXY
+                hit(CACHE_HINTS) -> CACHE
+                hit(DATABASE_HINTS) -> DATABASE
+                hit(QUEUE_HINTS) -> QUEUE
+                hit(WEB_HINTS) -> WEB
                 else -> GENERIC
             }
         }
