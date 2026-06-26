@@ -6,6 +6,20 @@ runs a set of **"doctor" checks** for the Docker networking mistakes that waste 
 Works in all JetBrains IDEs (built on the IntelliJ IDEA Community base): PyCharm, IntelliJ IDEA,
 WebStorm, GoLand, RubyMine, and more.
 
+## Status
+
+**v0.1.0 — early access, pre-Marketplace.** The plugin is feature-complete for its first milestone
+and stable in daily use; everything described below works and is covered by automated tests. It is
+not yet published to the JetBrains Marketplace, so for now you install the built zip from disk (see
+[Building](#building)).
+
+- **Targets:** IntelliJ Platform 2024.3+ (since-build 243), open-ended upper bound — installs in
+  PyCharm 2025.3 and any newer JetBrains IDE.
+- **Built with:** Kotlin, the IntelliJ Platform Gradle Plugin 2.x, Gradle 9.1.
+- **Shipped:** dependency-graph tool window, 10 YAML doctor checks, inline editor inspections with
+  quick-fixes, and the click-to-breakdown service detail popup.
+- **Next up:** see the [Roadmap](#roadmap).
+
 ## What it does
 
 Open the **Stack Doctor** tool window (right-hand side) and pick a compose file. You get:
@@ -20,7 +34,7 @@ Open the **Stack Doctor** tool window (right-hand side) and pick a compose file.
   exact line, with quick-fixes (publish a loopback port on all interfaces, declare a missing named
   volume/network) and navigation.
 
-### Checks in v1
+### Checks
 
 | Check | Severity | Why it matters |
 |-------|----------|----------------|
