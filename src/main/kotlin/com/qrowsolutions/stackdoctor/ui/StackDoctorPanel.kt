@@ -31,6 +31,11 @@ import com.qrowsolutions.stackdoctor.analysis.ServiceMapNode
 import com.qrowsolutions.stackdoctor.diagnostics.Diagnostic
 import com.qrowsolutions.stackdoctor.diagnostics.Severity
 import com.qrowsolutions.stackdoctor.inspection.HealthcheckWriter
+import com.qrowsolutions.stackdoctor.inspection.ServiceFieldWriter
+import com.qrowsolutions.stackdoctor.parser.ServiceField
+import com.qrowsolutions.stackdoctor.parser.ServiceFieldEdit
+import com.qrowsolutions.stackdoctor.parser.ServiceFields
+import org.jetbrains.yaml.psi.YAMLMapping
 import java.awt.BorderLayout
 import java.awt.Component
 import java.awt.Dimension
@@ -196,6 +201,29 @@ class StackDoctorPanel(private val project: Project) : JPanel(BorderLayout()) {
         refresh()
     }
 
+    /** Reads a service's currently-present parameters from its compose file as editable form fields. */
+    private fun readServiceFields(node: ServiceMapNode): List<ServiceField> {
+        val vf = LocalFileSystem.getInstance().findFileByPath(node.analysis.project.filePath) ?: return emptyList()
+        return ReadAction.compute<List<ServiceField>, RuntimeException> {
+            if (project.isDisposed || !vf.isValid) return@compute emptyList()
+            val yamlFile = PsiManager.getInstance(project).findFile(vf) as? YAMLFile ?: return@compute emptyList()
+            val body = ComposePsi.serviceKeyValue(yamlFile, node.service.name)?.value as? YAMLMapping
+                ?: return@compute emptyList()
+            ServiceFields.read(body)
+        }
+    }
+
+    /** Writes the form's changed fields back into the service's compose file in one undoable edit. */
+    private fun applyServiceEdits(node: ServiceMapNode, edits: List<ServiceFieldEdit>) {
+        if (edits.isEmpty()) return
+        val vf = LocalFileSystem.getInstance().findFileByPath(node.analysis.project.filePath) ?: return
+        val yamlFile = PsiManager.getInstance(project).findFile(vf) as? YAMLFile ?: return
+        WriteCommandAction.runWriteCommandAction(project, "Edit Service '${node.service.name}'", null, {
+            ServiceFieldWriter.apply(project, yamlFile, node.service.name, edits)
+        })
+        refresh()
+    }
+
     /** Writes the given healthchecks into the analysis's compose file in one undoable edit. */
     private fun applyHealthchecks(
         analysis: ComposeAnalysis,
@@ -247,6 +275,8 @@ class StackDoctorPanel(private val project: Project) : JPanel(BorderLayout()) {
             onSelect = { node -> selectFirstDiagnosticFor(node) },
             onActivate = { node -> openInEditor(node) },
             onGenerateHealthcheck = { node -> generateHealthcheckFor(node) },
+            fieldsFor = { node -> readServiceFields(node) },
+            onApplyServiceEdits = { node, edits -> applyServiceEdits(node, edits) },
         )
         graphPanel = panel
         graphHost.removeAll()

@@ -1,10 +1,14 @@
 package com.qrowsolutions.stackdoctor.ui
 
+import com.intellij.openapi.ui.ComboBox
 import com.intellij.openapi.ui.popup.JBPopup
 import com.intellij.openapi.ui.popup.JBPopupFactory
 import com.intellij.ui.JBColor
 import com.intellij.ui.awt.RelativePoint
+import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBScrollPane
+import com.intellij.ui.components.JBTextArea
+import com.intellij.ui.components.JBTextField
 import com.intellij.ui.scale.JBUIScale
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
@@ -12,14 +16,20 @@ import com.qrowsolutions.stackdoctor.analysis.FileMapNode
 import com.qrowsolutions.stackdoctor.analysis.MapNode
 import com.qrowsolutions.stackdoctor.analysis.ServiceMap
 import com.qrowsolutions.stackdoctor.analysis.ServiceMapNode
-import com.qrowsolutions.stackdoctor.analysis.ServiceExplainer
 import com.qrowsolutions.stackdoctor.diagnostics.Diagnostic
 import com.qrowsolutions.stackdoctor.diagnostics.Severity
 import com.qrowsolutions.stackdoctor.model.ComposeService
+import com.qrowsolutions.stackdoctor.parser.FieldKind
+import com.qrowsolutions.stackdoctor.parser.ServiceField
+import com.qrowsolutions.stackdoctor.parser.ServiceFieldEdit
 import java.awt.BasicStroke
+import java.awt.BorderLayout
 import java.awt.Color
+import java.awt.Component
 import java.awt.Cursor
 import java.awt.Dimension
+import java.awt.FlowLayout
+import java.awt.Font
 import java.awt.GradientPaint
 import java.awt.Graphics
 import java.awt.Graphics2D
@@ -30,6 +40,9 @@ import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
 import java.awt.event.MouseMotionAdapter
 import java.awt.geom.Path2D
+import javax.swing.BoxLayout
+import javax.swing.JButton
+import javax.swing.JComponent
 import javax.swing.JEditorPane
 import javax.swing.JPanel
 import javax.swing.event.HyperlinkEvent
@@ -39,13 +52,18 @@ import javax.swing.event.HyperlinkEvent
  * to the right, laid out in dependency layers (most-dependent nearest the file, dependencies flowing
  * right) with curved arrows for `depends_on` edges. Each service node shows a category accent, quick
  * health/port badges and a severity tint; file nodes show a service count and an error/warning
- * summary. Clicking a node opens a line-by-line breakdown; double-clicking opens the file.
+ * summary. Clicking a service node opens an editable form for its parameters; clicking a file node
+ * opens a breakdown of its services; double-clicking either opens the file.
  */
 class ServiceMapPanel(
     private val map: ServiceMap,
     private val onSelect: (MapNode?) -> Unit,
     private val onActivate: (MapNode) -> Unit = {},
     private val onGenerateHealthcheck: (ServiceMapNode) -> Unit = {},
+    /** Supplies the editable parameters for a service node (read from YAML on the EDT). */
+    private val fieldsFor: (ServiceMapNode) -> List<ServiceField> = { emptyList() },
+    /** Persists the form's changed fields back into the compose file. */
+    private val onApplyServiceEdits: (ServiceMapNode, List<ServiceFieldEdit>) -> Unit = { _, _ -> },
 ) : JPanel() {
 
     private val nodeWidth = JBUI.scale(172)
@@ -75,7 +93,11 @@ class ServiceMapPanel(
                 onSelect(map.node(hit))
                 repaint()
                 val node = map.node(hit) ?: return
-                if (e.clickCount >= 2) onActivate(node) else showBreakdown(node)
+                when {
+                    e.clickCount >= 2 -> { openPopup?.cancel(); onActivate(node) }
+                    node is ServiceMapNode -> showServiceForm(node)
+                    node is FileMapNode -> showBreakdown(node)
+                }
             }
         })
         addMouseMotionListener(object : MouseMotionAdapter() {
@@ -360,29 +382,18 @@ class ServiceMapPanel(
         return "$t…"
     }
 
-    // ---- Breakdown popup --------------------------------------------------------------------
+    // ---- File breakdown popup ---------------------------------------------------------------
 
-    private fun showBreakdown(node: MapNode) {
+    private fun showBreakdown(node: FileMapNode) {
         val rect = bounds[node.id] ?: return
         openPopup?.cancel()
 
-        val (title, html) = when (node) {
-            is ServiceMapNode -> "Service: ${node.service.name}" to serviceBreakdownHtml(node)
-            is FileMapNode -> "File: ${node.displayName}" to fileBreakdownHtml(node)
-        }
-
-        val pane = JEditorPane("text/html", html).apply {
+        val pane = JEditorPane("text/html", fileBreakdownHtml(node)).apply {
             isEditable = false
             isOpaque = true
             background = UIUtil.getToolTipBackground()
             border = JBUI.Borders.empty(4, 8)
             caretPosition = 0
-            addHyperlinkListener { e ->
-                if (e.eventType == HyperlinkEvent.EventType.ACTIVATED && e.description == ADD_HEALTHCHECK_HREF && node is ServiceMapNode) {
-                    openPopup?.cancel()
-                    onGenerateHealthcheck(node)
-                }
-            }
         }
         val scroll = JBScrollPane(pane).apply {
             border = JBUI.Borders.empty()
@@ -390,7 +401,7 @@ class ServiceMapPanel(
         }
         val popup = JBPopupFactory.getInstance()
             .createComponentPopupBuilder(scroll, pane)
-            .setTitle(title)
+            .setTitle("File: ${node.displayName}")
             .setResizable(true)
             .setMovable(true)
             .setRequestFocus(true)
@@ -399,42 +410,177 @@ class ServiceMapPanel(
         popup.show(RelativePoint(this, Point(rect.x + rect.width + JBUI.scale(8), rect.y)))
     }
 
-    private fun serviceBreakdownHtml(node: ServiceMapNode): String {
+    // ---- Service edit form ------------------------------------------------------------------
+
+    /** A field's editor widget, the component to focus, and a getter for its current text. */
+    private class FieldEditor(val component: JComponent, val focus: JComponent, val read: () -> String)
+
+    /**
+     * Opens an editable form for a service node: a header of diagnostics / "add healthcheck", then a
+     * row per present parameter. Saving writes only the changed fields back to the compose file via
+     * [onApplyServiceEdits]; cancelling discards them. The popup is sticky (it ignores clicks outside
+     * and focus loss) so a multi-field edit isn't lost to a stray click.
+     */
+    private fun showServiceForm(node: ServiceMapNode) {
+        val rect = bounds[node.id] ?: return
+        openPopup?.cancel()
+
+        val muted = UIUtil.getContextHelpForeground()
+        val fields = fieldsFor(node)
+        val collectors = mutableListOf<Pair<ServiceField, () -> String>>()
+        var firstEditor: JComponent? = null
+
+        val form = JPanel().apply {
+            layout = BoxLayout(this, BoxLayout.Y_AXIS)
+            isOpaque = false
+            border = JBUI.Borders.empty(6, 8)
+        }
+
+        serviceHeaderHtml(node)?.let { html ->
+            form.add(JEditorPane("text/html", html).apply {
+                isEditable = false
+                isOpaque = false
+                alignmentX = Component.LEFT_ALIGNMENT
+                border = JBUI.Borders.emptyBottom(6)
+                addHyperlinkListener { e ->
+                    if (e.eventType == HyperlinkEvent.EventType.ACTIVATED && e.description == ADD_HEALTHCHECK_HREF) {
+                        openPopup?.cancel()
+                        onGenerateHealthcheck(node)
+                    }
+                }
+            })
+        }
+
+        if (fields.isEmpty()) {
+            form.add(mutedLabel("This service declares no editable parameters.", muted))
+        }
+
+        for (field in fields) {
+            val row = JPanel().apply {
+                layout = BoxLayout(this, BoxLayout.Y_AXIS)
+                isOpaque = false
+                alignmentX = Component.LEFT_ALIGNMENT
+                border = JBUI.Borders.emptyBottom(9)
+            }
+            row.add(JBLabel(field.label).apply {
+                font = font.deriveFont(Font.BOLD)
+                alignmentX = Component.LEFT_ALIGNMENT
+            })
+
+            if (field.editable) {
+                val editor = buildEditor(field)
+                editor.component.alignmentX = Component.LEFT_ALIGNMENT
+                row.add(editor.component)
+                if (firstEditor == null) firstEditor = editor.focus
+                collectors += field to editor.read
+            } else {
+                row.add(JBLabel(field.value.replace("\n", ", ")).apply { alignmentX = Component.LEFT_ALIGNMENT })
+            }
+
+            val help = field.note?.let { "${field.explanation}  $it" } ?: field.explanation
+            row.add(mutedLabel(help, muted))
+            row.maximumSize = Dimension(Int.MAX_VALUE, row.preferredSize.height)
+            form.add(row)
+        }
+
+        val scroll = JBScrollPane(form).apply {
+            border = JBUI.Borders.empty()
+            preferredSize = Dimension(JBUI.scale(400), JBUI.scale(380))
+        }
+
+        val saveButton = JButton("Save")
+        val cancelButton = JButton("Cancel")
+        val content = JPanel(BorderLayout()).apply {
+            add(scroll, BorderLayout.CENTER)
+            add(JPanel(FlowLayout(FlowLayout.RIGHT, JBUI.scale(6), JBUI.scale(4))).apply {
+                add(cancelButton)
+                add(saveButton)
+            }, BorderLayout.SOUTH)
+        }
+
+        val popup = JBPopupFactory.getInstance()
+            .createComponentPopupBuilder(content, firstEditor ?: saveButton)
+            .setTitle("Edit service: ${node.service.name}")
+            .setResizable(true)
+            .setMovable(true)
+            .setRequestFocus(true)
+            .setCancelOnClickOutside(false)
+            .setCancelOnWindowDeactivation(false)
+            .createPopup()
+        saveButton.addActionListener {
+            val edits = collectors.mapNotNull { (field, read) ->
+                val value = read()
+                if (normalize(field.kind, value) != normalize(field.kind, field.value)) {
+                    ServiceFieldEdit(field.key, field.kind, value)
+                } else null
+            }
+            popup.cancel()
+            onApplyServiceEdits(node, edits)
+        }
+        cancelButton.addActionListener { popup.cancel() }
+
+        openPopup = popup
+        popup.show(RelativePoint(this, Point(rect.x + rect.width + JBUI.scale(8), rect.y)))
+    }
+
+    /** Header shown above the form: this service's findings, plus an "add healthcheck" link if needed. */
+    private fun serviceHeaderHtml(node: ServiceMapNode): String? {
         val svc = node.service
+        val diags = node.analysis.diagnostics.filter { it.service == svc.name }
+        val needsHealthcheck = !svc.hasHealthcheck || svc.healthcheckDisabled
+        if (diags.isEmpty() && !needsHealthcheck) return null
+
         val fg = hex(UIUtil.getLabelForeground())
         val muted = hex(UIUtil.getContextHelpForeground())
-        val accent = hex(ServiceCategory.of(svc).accent)
         val sb = StringBuilder()
-        sb.append("<html><body style='font-family:sans-serif;color:$fg;'>")
-
-        val svcDiags = node.analysis.diagnostics.filter { it.service == svc.name }
-        appendDiagnostics(sb, svcDiags, muted)
-
-        // Offer a per-service healthcheck when this one has none.
-        if (!svc.hasHealthcheck || svc.healthcheckDisabled) {
+        sb.append("<html><body style='font-family:sans-serif;color:$fg;'><div style='width:360px;'>")
+        appendDiagnostics(sb, diags, muted)
+        if (needsHealthcheck) {
             val link = hex(StackDoctorColors.SELECTED_BORDER)
-            sb.append("<div style='margin-bottom:8px;'>")
-            sb.append("<a href='$ADD_HEALTHCHECK_HREF' style='color:$link;text-decoration:none;'>")
-            sb.append("&#9658; Add a generated healthcheck</a>")
-            sb.append("</div>")
+            sb.append("<div><a href='$ADD_HEALTHCHECK_HREF' style='color:$link;text-decoration:none;'>")
+            sb.append("&#9658; Add a generated healthcheck</a></div>")
+        }
+        sb.append("</div></body></html>")
+        return sb.toString()
+    }
+
+    private fun buildEditor(field: ServiceField): FieldEditor = when (field.kind) {
+        FieldKind.SCALAR -> if (field.key == "restart") {
+            val combo = ComboBox(arrayOf("", "no", "always", "on-failure", "unless-stopped")).apply {
+                isEditable = true
+                selectedItem = field.value
+                maximumSize = Dimension(Int.MAX_VALUE, preferredSize.height)
+            }
+            FieldEditor(combo, combo) { (combo.editor.item ?: "").toString() }
+        } else {
+            val tf = JBTextField(field.value).apply { maximumSize = Dimension(Int.MAX_VALUE, preferredSize.height) }
+            FieldEditor(tf, tf) { tf.text }
+        }
+        FieldKind.LIST, FieldKind.ENV -> {
+            val area = JBTextArea(field.value).apply {
+                rows = field.value.lines().size.coerceIn(2, 8)
+                lineWrap = false
+            }
+            val sp = JBScrollPane(area).apply {
+                val h = JBUI.scale(area.rows * 20 + 8)
+                preferredSize = Dimension(JBUI.scale(360), h)
+                maximumSize = Dimension(Int.MAX_VALUE, h)
+            }
+            FieldEditor(sp, area) { area.text }
+        }
+    }
+
+    private fun mutedLabel(text: String, color: Color): JBLabel =
+        JBLabel("<html><div style='width:340px;'>${esc(text)}</div></html>").apply {
+            foreground = color
+            font = JBUI.Fonts.smallFont()
+            alignmentX = Component.LEFT_ALIGNMENT
         }
 
-        sb.append("<div style='color:$accent;font-weight:bold;margin-bottom:4px;'>Configuration breakdown</div>")
-        sb.append("<table cellpadding='0' cellspacing='0' style='width:100%;'>")
-        for (line in ServiceExplainer.explain(svc)) {
-            sb.append("<tr><td valign='top' style='padding:3px 8px 3px 0;white-space:nowrap;color:$accent;'>")
-            sb.append(esc(line.label))
-            sb.append("</td><td valign='top' style='padding:3px 0;'>")
-            if (line.value.isNotBlank()) {
-                sb.append("<code style='color:$fg;'>").append(esc(line.value)).append("</code><br>")
-            }
-            sb.append("<span style='color:$muted;font-size:92%;'>").append(esc(line.explanation)).append("</span>")
-            sb.append("</td></tr>")
-        }
-        sb.append("</table>")
-        sb.append("<div style='color:$muted;font-size:88%;margin-top:8px;'>Double-click the node to open it in the editor.</div>")
-        sb.append("</body></html>")
-        return sb.toString()
+    /** Normalised form of a field value for change detection (trim scalars; drop blank list lines). */
+    private fun normalize(kind: FieldKind, value: String): String = when (kind) {
+        FieldKind.SCALAR -> value.trim()
+        FieldKind.LIST, FieldKind.ENV -> value.lines().map { it.trim() }.filter { it.isNotEmpty() }.joinToString("\n")
     }
 
     private fun fileBreakdownHtml(node: FileMapNode): String {
@@ -466,7 +612,7 @@ class ServiceMapPanel(
             sb.append("</td><td valign='top' style='padding:3px 0;white-space:nowrap;'>").append(status).append("</td></tr>")
         }
         sb.append("</table>")
-        sb.append("<div style='color:$muted;font-size:88%;margin-top:8px;'>Click a service node for its breakdown · double-click to open the file.</div>")
+        sb.append("<div style='color:$muted;font-size:88%;margin-top:8px;'>Click a service node to edit it · double-click to open the file.</div>")
         sb.append("</body></html>")
         return sb.toString()
     }

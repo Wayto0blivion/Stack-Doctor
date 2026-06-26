@@ -1,7 +1,6 @@
 package com.qrowsolutions.stackdoctor
 
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
-import com.qrowsolutions.stackdoctor.analysis.ServiceExplainer
 import com.qrowsolutions.stackdoctor.diagnostics.Severity
 import com.qrowsolutions.stackdoctor.diagnostics.StackDoctor
 import com.qrowsolutions.stackdoctor.inspection.ComposeQuickFixes
@@ -97,14 +96,6 @@ class ComposeParserTest : BasePlatformTestCase() {
         assertEquals("8000:8000/tcp", ComposeQuickFixes.stripHostIp("127.0.0.1:8000:8000/tcp"))
         assertEquals("8080:80", ComposeQuickFixes.stripHostIp("8080:80"))
         assertEquals("80", ComposeQuickFixes.stripHostIp("80"))
-    }
-
-    fun testExplainerBreaksDownService() {
-        val project = parse(sample)
-        val lines = ServiceExplainer.explain(project.service("backend")!!)
-        assertTrue("has an image line", lines.any { it.label == "image" && it.value == "myapp:latest" })
-        assertTrue("explains the loopback port", lines.any { it.label == "port" && it.explanation.contains("not from other") })
-        assertTrue("lists dependencies", lines.any { it.label == "depends_on" })
     }
 
     fun testDetectsPortConflict() {
