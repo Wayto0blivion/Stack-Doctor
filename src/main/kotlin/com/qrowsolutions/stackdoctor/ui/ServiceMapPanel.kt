@@ -63,8 +63,10 @@ class ServiceMapPanel(
     private var openPopup: JBPopup? = null
 
     init {
-        isOpaque = true
-        background = UIUtil.getTreeBackground()
+        // Non-opaque so a user-set IDE background image shows through the canvas between nodes
+        // instead of being hidden behind a solid fill (which also flashed on activation). The nodes
+        // paint their own fills in paintNode, so they stay solid. See memory: ide-background-image.
+        isOpaque = false
         computeLayout()
         addMouseListener(object : MouseAdapter() {
             override fun mouseClicked(e: MouseEvent) {

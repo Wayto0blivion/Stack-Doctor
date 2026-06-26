@@ -71,6 +71,13 @@ class StackDoctorPanel(private val project: Project) : JPanel(BorderLayout()) {
 
     init {
         StackDoctorService.getInstance(project).panel = this
+        // Keep the map area non-opaque all the way down the scroll chain so a user-set IDE
+        // background image shows through it. Any opaque component here repaints a solid fill that
+        // covers the image and flashes on activation. See memory: ide-background-image.
+        isOpaque = false
+        graphHost.isOpaque = false
+        graphScroll.isOpaque = false
+        graphScroll.viewport.isOpaque = false
         add(buildToolbar(), BorderLayout.NORTH)
         add(buildCenter(), BorderLayout.CENTER)
         configureDiagList()
@@ -79,6 +86,7 @@ class StackDoctorPanel(private val project: Project) : JPanel(BorderLayout()) {
 
     private fun buildToolbar(): JPanel {
         val bar = JPanel(FlowLayout(FlowLayout.LEFT, JBUI.scale(8), JBUI.scale(4)))
+        bar.isOpaque = false
         bar.add(JBLabel("Compose map:"))
 
         val refreshButton = JButton(AllIcons.Actions.Refresh).apply {

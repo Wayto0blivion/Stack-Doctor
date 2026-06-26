@@ -8,10 +8,9 @@ WebStorm, GoLand, RubyMine, and more.
 
 ## Status
 
-**v0.1.0 — early access, pre-Marketplace.** The plugin is feature-complete for its first milestone
-and stable in daily use; everything described below works and is covered by automated tests. It is
-not yet published to the JetBrains Marketplace, so for now you install the built zip from disk (see
-[Building](#building)).
+**v0.1.1 — on the JetBrains Marketplace.** The plugin is feature-complete for its first milestone
+and stable in daily use; everything described below works and is covered by automated tests. Install
+it from the JetBrains Marketplace, or build the zip from disk (see [Building](#building)).
 
 - **Targets:** IntelliJ Platform 2024.3+ (since-build 243), open-ended upper bound — installs in
   PyCharm 2025.3 and any newer JetBrains IDE.
