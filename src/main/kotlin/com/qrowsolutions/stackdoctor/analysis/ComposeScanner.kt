@@ -1,7 +1,8 @@
 package com.qrowsolutions.stackdoctor.analysis
 
-import com.intellij.openapi.application.ReadAction
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.util.Computable
 import com.intellij.psi.PsiManager
 import com.intellij.psi.search.FileTypeIndex
 import com.intellij.psi.search.GlobalSearchScope
@@ -33,13 +34,14 @@ object ComposeScanner {
     )
 
     /** Returns YAML files in the project that look like compose files, canonical names first. */
-    fun findComposeFiles(project: Project): List<VirtualFile> = ReadAction.compute<List<VirtualFile>, RuntimeException> {
-        if (project.isDisposed) return@compute emptyList()
-        val scope = GlobalSearchScope.projectScope(project)
-        val yaml = FileTypeIndex.getFiles(YAMLFileType.YML, scope)
-        yaml.filter { isComposeName(it.name) }
-            .sortedWith(compareByDescending<VirtualFile> { it.name in CANONICAL_NAMES }.thenBy { it.path })
-    }
+    fun findComposeFiles(project: Project): List<VirtualFile> =
+        ApplicationManager.getApplication().runReadAction(Computable {
+            if (project.isDisposed) return@Computable emptyList()
+            val scope = GlobalSearchScope.projectScope(project)
+            val yaml = FileTypeIndex.getFiles(YAMLFileType.YML, scope)
+            yaml.filter { isComposeName(it.name) }
+                .sortedWith(compareByDescending<VirtualFile> { it.name in CANONICAL_NAMES }.thenBy { it.path })
+        })
 
     fun isComposeName(name: String): Boolean {
         val lower = name.lowercase()
@@ -49,13 +51,13 @@ object ComposeScanner {
 
     /** Parses and runs the doctor over a single compose file, or null if it isn't a usable compose file. */
     fun analyze(project: Project, file: VirtualFile): ComposeAnalysis? =
-        ReadAction.compute<ComposeAnalysis?, RuntimeException> {
-            if (project.isDisposed || !file.isValid) return@compute null
-            val yamlFile = PsiManager.getInstance(project).findFile(file) as? YAMLFile ?: return@compute null
-            val composeProject = ComposeParser.parse(yamlFile) ?: return@compute null
-            if (composeProject.services.isEmpty()) return@compute null
+        ApplicationManager.getApplication().runReadAction(Computable {
+            if (project.isDisposed || !file.isValid) return@Computable null
+            val yamlFile = PsiManager.getInstance(project).findFile(file) as? YAMLFile ?: return@Computable null
+            val composeProject = ComposeParser.parse(yamlFile) ?: return@Computable null
+            if (composeProject.services.isEmpty()) return@Computable null
             val baseDir = file.parent?.path?.let { File(it) }
             val diagnostics = StackDoctor.run(composeProject, baseDir)
             ComposeAnalysis(composeProject, ServiceGraph(composeProject), diagnostics)
-        }
+        })
 }
