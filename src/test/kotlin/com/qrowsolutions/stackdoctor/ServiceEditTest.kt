@@ -163,4 +163,56 @@ class ServiceEditTest : BasePlatformTestCase() {
         // The neighbouring service is untouched.
         assertEquals("postgres:16", ComposeParser.parse(file)!!.service("db")!!.image)
     }
+
+    fun testReadsHealthcheckAsKeyValueLines() {
+        val file = configure(
+            """
+            services:
+              api:
+                image: myapp:1
+                healthcheck:
+                  test: ["CMD-SHELL", "curl -fsS http://localhost || exit 1"]
+                  interval: 10s
+                  retries: 5
+            """.trimIndent(),
+        )
+        val hc = field(file, "api", "healthcheck")
+        assertEquals(FieldKind.MAP, hc.kind)
+        assertEquals(
+            "test: [\"CMD-SHELL\", \"curl -fsS http://localhost || exit 1\"]\ninterval: 10s\nretries: 5",
+            hc.value,
+        )
+    }
+
+    fun testEditHealthcheckRewritesMapping() {
+        val file = configure(
+            """
+            services:
+              api:
+                image: myapp:1
+                healthcheck:
+                  test: ["CMD", "redis-cli", "ping"]
+                  interval: 10s
+                  retries: 5
+            """.trimIndent(),
+        )
+        edit(
+            file, "api",
+            ServiceFieldEdit(
+                "healthcheck", FieldKind.MAP,
+                "test: [\"CMD\", \"redis-cli\", \"ping\"]\ninterval: 30s\nretries: 3\nstart_period: 40s",
+            ),
+        )
+
+        // It still parses as a healthcheck, and re-reading reflects the edited values.
+        val reparsed = ComposeParser.parse(file)!!.service("api")!!
+        assertTrue("api should still declare a healthcheck", reparsed.hasHealthcheck)
+        assertFalse(reparsed.healthcheckDisabled)
+        val hc = field(file, "api", "healthcheck").value
+        assertTrue("interval updated", hc.contains("interval: 30s"))
+        assertTrue("retries updated", hc.contains("retries: 3"))
+        assertTrue("start_period added", hc.contains("start_period: 40s"))
+        // A sibling key survives the rewrite.
+        assertEquals("myapp:1", reparsed.image)
+    }
 }

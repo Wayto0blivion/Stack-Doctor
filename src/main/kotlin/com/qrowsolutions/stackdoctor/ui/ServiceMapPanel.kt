@@ -45,6 +45,8 @@ import javax.swing.JButton
 import javax.swing.JComponent
 import javax.swing.JEditorPane
 import javax.swing.JPanel
+import javax.swing.ScrollPaneConstants
+import javax.swing.Scrollable
 import javax.swing.event.HyperlinkEvent
 
 /**
@@ -416,6 +418,19 @@ class ServiceMapPanel(
     private class FieldEditor(val component: JComponent, val focus: JComponent, val read: () -> String)
 
     /**
+     * Vertical form whose width always tracks its scroll viewport, so fields stretch to fit and never
+     * overflow past the right edge (a plain JPanel keeps its content-driven preferred width and gets
+     * clipped). Height stays content-driven so the form scrolls vertically.
+     */
+    private class FormPanel : JPanel(), Scrollable {
+        override fun getPreferredScrollableViewportSize(): Dimension = preferredSize
+        override fun getScrollableUnitIncrement(r: Rectangle, orientation: Int, direction: Int): Int = JBUI.scale(16)
+        override fun getScrollableBlockIncrement(r: Rectangle, orientation: Int, direction: Int): Int = JBUI.scale(64)
+        override fun getScrollableTracksViewportWidth(): Boolean = true
+        override fun getScrollableTracksViewportHeight(): Boolean = false
+    }
+
+    /**
      * Opens an editable form for a service node: a header of diagnostics / "add healthcheck", then a
      * row per present parameter. Saving writes only the changed fields back to the compose file via
      * [onApplyServiceEdits]; cancelling discards them. The popup is sticky (it ignores clicks outside
@@ -430,7 +445,7 @@ class ServiceMapPanel(
         val collectors = mutableListOf<Pair<ServiceField, () -> String>>()
         var firstEditor: JComponent? = null
 
-        val form = JPanel().apply {
+        val form = FormPanel().apply {
             layout = BoxLayout(this, BoxLayout.Y_AXIS)
             isOpaque = false
             border = JBUI.Borders.empty(6, 8)
@@ -485,6 +500,7 @@ class ServiceMapPanel(
 
         val scroll = JBScrollPane(form).apply {
             border = JBUI.Borders.empty()
+            horizontalScrollBarPolicy = ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER
             preferredSize = Dimension(JBUI.scale(400), JBUI.scale(380))
         }
 
@@ -556,14 +572,14 @@ class ServiceMapPanel(
             val tf = JBTextField(field.value).apply { maximumSize = Dimension(Int.MAX_VALUE, preferredSize.height) }
             FieldEditor(tf, tf) { tf.text }
         }
-        FieldKind.LIST, FieldKind.ENV -> {
+        FieldKind.LIST, FieldKind.ENV, FieldKind.MAP -> {
             val area = JBTextArea(field.value).apply {
                 rows = field.value.lines().size.coerceIn(2, 8)
                 lineWrap = false
             }
+            val h = JBUI.scale(area.rows * 20 + 8)
             val sp = JBScrollPane(area).apply {
-                val h = JBUI.scale(area.rows * 20 + 8)
-                preferredSize = Dimension(JBUI.scale(360), h)
+                preferredSize = Dimension(JBUI.scale(220), h)
                 maximumSize = Dimension(Int.MAX_VALUE, h)
             }
             FieldEditor(sp, area) { area.text }
@@ -580,7 +596,8 @@ class ServiceMapPanel(
     /** Normalised form of a field value for change detection (trim scalars; drop blank list lines). */
     private fun normalize(kind: FieldKind, value: String): String = when (kind) {
         FieldKind.SCALAR -> value.trim()
-        FieldKind.LIST, FieldKind.ENV -> value.lines().map { it.trim() }.filter { it.isNotEmpty() }.joinToString("\n")
+        FieldKind.LIST, FieldKind.ENV, FieldKind.MAP ->
+            value.lines().map { it.trim() }.filter { it.isNotEmpty() }.joinToString("\n")
     }
 
     private fun fileBreakdownHtml(node: FileMapNode): String {

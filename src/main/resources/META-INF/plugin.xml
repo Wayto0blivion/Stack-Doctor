@@ -58,6 +58,11 @@
     ]]></description>
 
     <change-notes><![CDATA[
+        <h3>0.2.1</h3>
+        <ul>
+            <li>The service edit form now includes an editable <b>Healthcheck</b> field, so a generated healthcheck can be tweaked in place.</li>
+            <li>Fixed edit-form fields being clipped on the right edge &mdash; they now fit the popup and resize with it.</li>
+        </ul>
         <h3>0.2.0</h3>
         <ul>
             <li><b>Edit services right from the map.</b> Click a service node to open an editable form for its parameters &mdash; image, ports, expose, depends_on, volumes, networks, env files, environment and restart &mdash; and Save writes the changes straight back into the compose file in one undoable step.</li>

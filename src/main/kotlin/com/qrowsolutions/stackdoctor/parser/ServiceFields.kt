@@ -5,8 +5,11 @@ import org.jetbrains.yaml.psi.YAMLMapping
 import org.jetbrains.yaml.psi.YAMLScalar
 import org.jetbrains.yaml.psi.YAMLSequence
 
-/** How a [ServiceField] is edited and written back: a single scalar, a list, or KEY=value pairs. */
-enum class FieldKind { SCALAR, LIST, ENV }
+/**
+ * How a [ServiceField] is edited and written back: a single scalar, a list (`- item`), `KEY=value`
+ * environment pairs, or a nested `key: value` mapping (e.g. `healthcheck`).
+ */
+enum class FieldKind { SCALAR, LIST, ENV, MAP }
 
 /**
  * One editable parameter of a service: its YAML [key], a display [label], the current [value]
@@ -47,7 +50,7 @@ object ServiceFields {
             out += list(it, "ports", "Published ports", "Host-to-container port mappings (HOST:CONTAINER), one per line.")
         }
         serviceBody.getKeyValueByKey("expose")?.let {
-            out += list(it, "expose", "Exposed ports", "Container ports reachable only by other services on the same network, one per line.")
+            out += list(it, "expose", "Exposed ports", "Container ports reachable only by other services on the same network. One per line.")
         }
         dependsOn(serviceBody)?.let { out += it }
         serviceBody.getKeyValueByKey("links")?.let {
@@ -61,6 +64,7 @@ object ServiceFields {
             out += list(it, "env_file", "Env files", "Files to load environment variables from, one path per line.")
         }
         environment(serviceBody)?.let { out += it }
+        healthcheck(serviceBody)?.let { out += it }
         serviceBody.getKeyValueByKey("restart")?.let {
             out += scalar(it, "restart", "Restart policy", "When Docker restarts the container: no, always, on-failure or unless-stopped.")
         }
@@ -120,5 +124,32 @@ object ServiceFields {
             "environment", "Environment", FieldKind.ENV, lines.joinToString("\n"),
             "Environment variables as KEY=value, one per line.",
         )
+    }
+
+    /**
+     * `healthcheck` is a nested mapping shown as `key: value` lines (test, interval, timeout, …).
+     * The `test` command is rendered in YAML flow form (`["CMD-SHELL", "…"]`) so it stays on one line,
+     * matching what the plugin's own generator writes.
+     */
+    private fun healthcheck(body: YAMLMapping): ServiceField? {
+        val kv = body.getKeyValueByKey("healthcheck") ?: return null
+        val help = "Container health probe — one key: value per line " +
+            "(test, interval, timeout, retries, start_period, disable). " +
+            "test is a YAML list, e.g. [\"CMD-SHELL\", \"curl -fsS http://localhost || exit 1\"]."
+        val map = kv.value as? YAMLMapping ?: return ServiceField(
+            "healthcheck", "Healthcheck", FieldKind.MAP, "", help,
+            editable = false, note = "Unrecognised form — edit it directly in the file.",
+        )
+        val lines = map.keyValues.map { sub -> "${sub.keyText}: ${flowText(sub.value)}" }
+        return ServiceField("healthcheck", "Healthcheck", FieldKind.MAP, lines.joinToString("\n"), help)
+    }
+
+    /** A single-line rendering of a healthcheck sub-value: scalar as-is, sequence as a flow list. */
+    private fun flowText(value: org.jetbrains.yaml.psi.YAMLValue?): String = when (value) {
+        is YAMLScalar -> value.textValue
+        is YAMLSequence -> value.items
+            .mapNotNull { (it.value as? YAMLScalar)?.textValue }
+            .joinToString(", ", "[", "]") { "\"$it\"" }
+        else -> value?.text?.trim() ?: ""
     }
 }

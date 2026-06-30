@@ -34,6 +34,7 @@ object ServiceFieldWriter {
             when (edit.kind) {
                 FieldKind.SCALAR -> applyScalar(doc, body, edit)
                 FieldKind.LIST, FieldKind.ENV -> applyList(doc, body, edit)
+                FieldKind.MAP -> applyMap(doc, body, edit)
             }
         }
         psiDocMgr.commitDocument(doc)
@@ -66,6 +67,27 @@ object ServiceFieldWriter {
         val block = buildString {
             append(edit.key).append(':')
             for (item in items) append('\n').append(itemPad).append("- ").append(quoteIfNeeded(item))
+        }
+        if (kv != null) doc.replaceString(kv.textRange.startOffset, kv.textRange.endOffset, block)
+        else insertKey(doc, body, block)
+    }
+
+    /** Rewrites a nested mapping (e.g. `healthcheck`) from `key: value` lines into a block mapping. */
+    private fun applyMap(doc: Document, body: YAMLMapping, edit: ServiceFieldEdit) {
+        val kv = body.getKeyValueByKey(edit.key)
+        val entries = edit.value.lines().map { it.trim() }.filter { it.isNotEmpty() && it.contains(':') }
+        if (entries.isEmpty()) {
+            if (kv != null) deleteKeyValue(doc, kv)
+            return
+        }
+        val pad = " ".repeat(bodyIndent(doc, body) + 2)
+        val block = buildString {
+            append(edit.key).append(':')
+            for (entry in entries) {
+                val k = entry.substringBefore(':').trim()
+                val v = entry.substringAfter(':').trim()
+                append('\n').append(pad).append(k).append(": ").append(v)
+            }
         }
         if (kv != null) doc.replaceString(kv.textRange.startOffset, kv.textRange.endOffset, block)
         else insertKey(doc, body, block)
