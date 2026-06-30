@@ -49,6 +49,19 @@ object ComposeScanner {
         return lower.contains("compose") && (lower.endsWith(".yml") || lower.endsWith(".yaml"))
     }
 
+    /**
+     * Suggests a default overlay to merge onto [base] from [files]: prefer a same-directory
+     * `*.override.*` sibling of [base] (e.g. `docker-compose.override.yml` for
+     * `docker-compose.yml`), otherwise the first other compose file. Returns null when [base] is
+     * the only file.
+     */
+    fun defaultOverlayFor(base: VirtualFile, files: List<VirtualFile>): VirtualFile? {
+        val sibling = files.firstOrNull {
+            it != base && it.parent == base.parent && ComposeMerge.baseNameForOverride(it.name) == base.name
+        }
+        return sibling ?: files.firstOrNull { it != base }
+    }
+
     /** Parses and runs the doctor over a single compose file, or null if it isn't a usable compose file. */
     fun analyze(project: Project, file: VirtualFile): ComposeAnalysis? =
         ApplicationManager.getApplication().runReadAction(Computable {

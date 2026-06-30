@@ -38,9 +38,14 @@ import com.qrowsolutions.stackdoctor.parser.ServiceFields
 import org.jetbrains.yaml.psi.YAMLMapping
 import java.awt.BorderLayout
 import java.awt.Component
+import java.awt.Cursor
 import java.awt.Dimension
 import java.awt.FlowLayout
 import java.awt.Point
+import java.awt.event.ComponentAdapter
+import java.awt.event.ComponentEvent
+import java.awt.event.MouseAdapter
+import java.awt.event.MouseEvent
 import javax.swing.DefaultListModel
 import javax.swing.JButton
 import javax.swing.JEditorPane
@@ -62,6 +67,15 @@ class StackDoctorPanel(private val project: Project) : JPanel(BorderLayout()) {
 
     private val diagModel = DefaultListModel<MapDiagnostic>()
     private val diagList = JBList(diagModel)
+
+    // Collapsible diagnostics block: a clickable header over the list, inside the top/bottom split.
+    private val diagScroll = JBScrollPane(diagList)
+    private val diagChevron = JBLabel(AllIcons.General.ChevronDown)
+    private val diagHeaderLabel = JBLabel("Warnings & errors")
+    private lateinit var diagHeader: JPanel
+    private val splitter = OnePixelSplitter(true, 0.62f)
+    private var diagCollapsed = false
+    private var savedProportion = 0.62f
 
     private var graphPanel: ServiceMapPanel? = null
     private var currentMap: ServiceMap? = null
@@ -112,8 +126,45 @@ class StackDoctorPanel(private val project: Project) : JPanel(BorderLayout()) {
         }
         bar.add(healthcheckButton)
 
+        val mergeButton = JButton("Merged preview", AllIcons.Actions.Diff).apply {
+            toolTipText = "Preview two compose files merged into one (e.g. a base file + its override)"
+            addActionListener { showMergedPreview() }
+        }
+        bar.add(mergeButton)
+
+        val resetLayoutButton = JButton("Reset layout", AllIcons.General.Reset).apply {
+            toolTipText = "Clear any dragged node positions and restore the automatic layout"
+            addActionListener { resetLayout() }
+        }
+        bar.add(resetLayoutButton)
+
         bar.add(summaryLabel)
         return bar
+    }
+
+    /** Opens the two-file merge preview, or explains when there aren't two compose files to merge. */
+    private fun showMergedPreview() {
+        ApplicationManager.getApplication().executeOnPooledThread {
+            val files = ComposeScanner.findComposeFiles(project)
+            SwingUtilities.invokeLater {
+                if (project.isDisposed) return@invokeLater
+                if (files.size < 2) {
+                    Messages.showInfoMessage(
+                        project,
+                        "Need at least two compose files in the project to merge.",
+                        "Merged Preview",
+                    )
+                } else {
+                    MergePreviewDialog(project, files).show()
+                }
+            }
+        }
+    }
+
+    /** Discards hand-dragged node positions and rebuilds the map with the automatic layout. */
+    private fun resetLayout() {
+        StackDoctorService.getInstance(project).nodePositions.clear()
+        refresh()
     }
 
     private fun showLegend(anchor: Component) {
@@ -237,10 +288,62 @@ class StackDoctorPanel(private val project: Project) : JPanel(BorderLayout()) {
     }
 
     private fun buildCenter(): OnePixelSplitter {
-        val splitter = OnePixelSplitter(true, 0.62f)
         splitter.firstComponent = graphScroll
-        splitter.secondComponent = JBScrollPane(diagList)
+        splitter.secondComponent = buildDiagnosticsPanel()
+        // While collapsed, keep the bottom pinned to just the header as the window is resized.
+        splitter.addComponentListener(object : ComponentAdapter() {
+            override fun componentResized(e: ComponentEvent) {
+                if (diagCollapsed) pinCollapsed()
+            }
+        })
         return splitter
+    }
+
+    /** The diagnostics list under a clickable header that collapses it down to just the header. */
+    private fun buildDiagnosticsPanel(): JPanel {
+        diagHeader = JPanel(FlowLayout(FlowLayout.LEFT, JBUI.scale(4), JBUI.scale(3))).apply {
+            cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
+            toolTipText = "Show or hide the warnings & errors list"
+            add(diagChevron)
+            add(diagHeaderLabel)
+            addMouseListener(object : MouseAdapter() {
+                override fun mouseClicked(e: MouseEvent) = toggleDiagnostics()
+            })
+        }
+        return JPanel(BorderLayout()).apply {
+            add(diagHeader, BorderLayout.NORTH)
+            add(diagScroll, BorderLayout.CENTER)
+        }
+    }
+
+    private fun toggleDiagnostics() {
+        diagCollapsed = !diagCollapsed
+        diagChevron.icon = if (diagCollapsed) AllIcons.General.ChevronRight else AllIcons.General.ChevronDown
+        if (diagCollapsed) {
+            savedProportion = splitter.proportion
+            pinCollapsed()
+        } else {
+            splitter.proportion = savedProportion
+        }
+    }
+
+    /** Pins the splitter so the bottom region shows only the diagnostics header. */
+    private fun pinCollapsed() {
+        val h = splitter.height
+        if (h <= 0) {
+            SwingUtilities.invokeLater { if (diagCollapsed) pinCollapsed() }
+            return
+        }
+        val headerH = diagHeader.preferredSize.height
+        splitter.proportion = (1f - headerH.toFloat() / h).coerceIn(0.05f, 0.95f)
+    }
+
+    private fun diagHeaderText(errors: Int, warnings: Int): String {
+        if (errors == 0 && warnings == 0) return "Warnings & errors"
+        val parts = mutableListOf<String>()
+        if (errors > 0) parts += "$errors error${if (errors == 1) "" else "s"}"
+        if (warnings > 0) parts += "$warnings warning${if (warnings == 1) "" else "s"}"
+        return "Warnings & errors · ${parts.joinToString(" · ")}"
     }
 
     private fun configureDiagList() {
@@ -277,6 +380,7 @@ class StackDoctorPanel(private val project: Project) : JPanel(BorderLayout()) {
             onGenerateHealthcheck = { node -> generateHealthcheckFor(node) },
             fieldsFor = { node -> readServiceFields(node) },
             onApplyServiceEdits = { node, edits -> applyServiceEdits(node, edits) },
+            positions = StackDoctorService.getInstance(project).nodePositions,
         )
         graphPanel = panel
         graphHost.removeAll()
@@ -300,6 +404,7 @@ class StackDoctorPanel(private val project: Project) : JPanel(BorderLayout()) {
         val warnings = map.analyses.sumOf { a -> a.diagnostics.count { it.severity == Severity.WARNING } }
         val fileWord = if (map.analyses.size == 1) "file" else "files"
         summaryLabel.text = "  ${map.analyses.size} $fileWord · $services services · $errors errors · $warnings warnings"
+        diagHeaderLabel.text = diagHeaderText(errors, warnings)
     }
 
     private fun fileDisplayName(map: ServiceMap, idx: Int): String =
@@ -317,6 +422,7 @@ class StackDoctorPanel(private val project: Project) : JPanel(BorderLayout()) {
         graphHost.repaint()
         diagModel.clear()
         summaryLabel.text = ""
+        diagHeaderLabel.text = diagHeaderText(0, 0)
     }
 
     private fun selectFirstDiagnosticFor(node: MapNode?) {

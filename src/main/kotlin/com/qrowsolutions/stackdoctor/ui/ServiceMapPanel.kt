@@ -16,7 +16,6 @@ import com.qrowsolutions.stackdoctor.analysis.FileMapNode
 import com.qrowsolutions.stackdoctor.analysis.MapNode
 import com.qrowsolutions.stackdoctor.analysis.ServiceMap
 import com.qrowsolutions.stackdoctor.analysis.ServiceMapNode
-import com.qrowsolutions.stackdoctor.diagnostics.Diagnostic
 import com.qrowsolutions.stackdoctor.diagnostics.Severity
 import com.qrowsolutions.stackdoctor.model.ComposeService
 import com.qrowsolutions.stackdoctor.parser.FieldKind
@@ -48,6 +47,7 @@ import javax.swing.JPanel
 import javax.swing.ScrollPaneConstants
 import javax.swing.Scrollable
 import javax.swing.event.HyperlinkEvent
+import kotlin.math.abs
 
 /**
  * Custom-drawn project map. Every compose file is a root node on the left; its services branch off
@@ -66,6 +66,8 @@ class ServiceMapPanel(
     private val fieldsFor: (ServiceMapNode) -> List<ServiceField> = { emptyList() },
     /** Persists the form's changed fields back into the compose file. */
     private val onApplyServiceEdits: (ServiceMapNode, List<ServiceFieldEdit>) -> Unit = { _, _ -> },
+    /** User-dragged node positions by node id; updated on drag so the layout survives a refresh. */
+    private val positions: MutableMap<String, Point> = LinkedHashMap(),
 ) : JPanel() {
 
     private val nodeWidth = JBUI.scale(172)
@@ -82,6 +84,16 @@ class ServiceMapPanel(
     private var hovered: String? = null
     private var openPopup: JBPopup? = null
 
+    // Drag-to-reposition state. A press records the node under the cursor and its origin; a drag
+    // past [dragThreshold] moves it (updating [positions]); the trailing click is suppressed so a
+    // drag never opens the edit form.
+    private var dragId: String? = null
+    private var dragStart: Point? = null
+    private var dragOrigin: Point? = null
+    private var movedDuringDrag = false
+    private var justDragged = false
+    private val dragThreshold = JBUI.scale(4)
+
     init {
         // Non-opaque so a user-set IDE background image shows through the canvas between nodes
         // instead of being hidden behind a solid fill (which also flashed on activation). The nodes
@@ -89,7 +101,27 @@ class ServiceMapPanel(
         isOpaque = false
         computeLayout()
         addMouseListener(object : MouseAdapter() {
+            override fun mousePressed(e: MouseEvent) {
+                dragId = nodeAt(e.point)
+                dragStart = e.point
+                dragOrigin = dragId?.let { bounds[it]?.location }
+                movedDuringDrag = false
+                justDragged = false
+            }
+
+            override fun mouseReleased(e: MouseEvent) {
+                if (movedDuringDrag) {
+                    justDragged = true // swallow the click Swing may still deliver after a drag
+                    revalidate()
+                    repaint()
+                }
+                dragId = null
+                dragStart = null
+                dragOrigin = null
+            }
+
             override fun mouseClicked(e: MouseEvent) {
+                if (justDragged) { justDragged = false; return }
                 val hit = nodeAt(e.point)
                 selected = hit
                 onSelect(map.node(hit))
@@ -107,9 +139,27 @@ class ServiceMapPanel(
                 val hit = nodeAt(e.point)
                 if (hit != hovered) {
                     hovered = hit
-                    cursor = Cursor.getPredefinedCursor(if (hit != null) Cursor.HAND_CURSOR else Cursor.DEFAULT_CURSOR)
+                    cursor = Cursor.getPredefinedCursor(if (hit != null) Cursor.MOVE_CURSOR else Cursor.DEFAULT_CURSOR)
                     repaint()
                 }
+            }
+
+            override fun mouseDragged(e: MouseEvent) {
+                val id = dragId ?: return
+                val origin = dragOrigin ?: return
+                val start = dragStart ?: return
+                val rect = bounds[id] ?: return
+                val dx = e.x - start.x
+                val dy = e.y - start.y
+                if (!movedDuringDrag && (abs(dx) > dragThreshold || abs(dy) > dragThreshold)) {
+                    movedDuringDrag = true
+                }
+                val nx = (origin.x + dx).coerceAtLeast(margin)
+                val ny = (origin.y + dy).coerceAtLeast(margin)
+                rect.setLocation(nx, ny)
+                positions[id] = Point(nx, ny)
+                growCanvas()
+                repaint()
             }
         })
     }
@@ -126,7 +176,6 @@ class ServiceMapPanel(
         bounds.clear()
         val rowPitch = nodeHeight + vGap
         var bandTop = margin
-        var maxCol = 0
 
         map.analyses.forEachIndexed { idx, a ->
             val fileId = "file/$idx"
@@ -150,7 +199,6 @@ class ServiceMapPanel(
                     val y = bandTop + offset + row * rowPitch
                     bounds[id] = Rectangle(x, y, nodeWidth, nodeHeight)
                 }
-                if (col > maxCol) maxCol = col
             }
 
             // File node in column 0, vertically centred against its band.
@@ -160,9 +208,31 @@ class ServiceMapPanel(
             bandTop += bandHeight + bandGap
         }
 
-        val width = margin * 2 + (maxCol + 1) * (nodeWidth + hGap)
-        val height = (bandTop - bandGap) + margin
-        preferredSize = Dimension(width, height.coerceAtLeast(margin * 2 + nodeHeight))
+        applySavedPositions()
+        updatePreferredSize()
+    }
+
+    /** Overrides computed locations with any user-dragged positions for the same node ids. */
+    private fun applySavedPositions() {
+        for ((id, p) in positions) bounds[id]?.setLocation(p)
+    }
+
+    /** Sizes the canvas to fit every node's bounds (plus a margin), so the scroll pane can reach them. */
+    private fun updatePreferredSize() {
+        val maxX = bounds.values.maxOfOrNull { it.x + it.width } ?: nodeWidth
+        val maxY = bounds.values.maxOfOrNull { it.y + it.height } ?: nodeHeight
+        preferredSize = Dimension(maxX + margin, (maxY + margin).coerceAtLeast(margin * 2 + nodeHeight))
+    }
+
+    /** During a drag, grows (never shrinks) the canvas so a node dragged past the edge stays reachable. */
+    private fun growCanvas() {
+        val needX = (bounds.values.maxOfOrNull { it.x + it.width } ?: 0) + margin
+        val needY = (bounds.values.maxOfOrNull { it.y + it.height } ?: 0) + margin
+        val cur = preferredSize
+        if (needX > cur.width || needY > cur.height) {
+            preferredSize = Dimension(maxOf(needX, cur.width), maxOf(needY, cur.height))
+            revalidate()
+        }
     }
 
     override fun paintComponent(g: Graphics) {
@@ -550,7 +620,7 @@ class ServiceMapPanel(
         val muted = hex(UIUtil.getContextHelpForeground())
         val sb = StringBuilder()
         sb.append("<html><body style='font-family:sans-serif;color:$fg;'><div style='width:360px;'>")
-        appendDiagnostics(sb, diags, muted)
+        ComposeHtml.appendDiagnostics(sb, diags, muted)
         if (needsHealthcheck) {
             val link = hex(StackDoctorColors.SELECTED_BORDER)
             sb.append("<div><a href='$ADD_HEALTHCHECK_HREF' style='color:$link;text-decoration:none;'>")
@@ -609,7 +679,7 @@ class ServiceMapPanel(
 
         // Project-wide findings for this file (those not tied to a single service).
         val fileDiags = node.analysis.diagnostics.filter { it.service == null }
-        appendDiagnostics(sb, fileDiags, muted)
+        ComposeHtml.appendDiagnostics(sb, fileDiags, muted)
 
         sb.append("<div style='color:$accent;font-weight:bold;margin-bottom:4px;'>Services</div>")
         sb.append("<table cellpadding='0' cellspacing='0' style='width:100%;'>")
@@ -634,28 +704,9 @@ class ServiceMapPanel(
         return sb.toString()
     }
 
-    private fun appendDiagnostics(sb: StringBuilder, diags: List<Diagnostic>, muted: String) {
-        if (diags.isEmpty()) return
-        sb.append("<div style='margin-bottom:8px;'>")
-        for (d in diags) {
-            val color = when (d.severity) {
-                Severity.ERROR -> hex(StackDoctorColors.ERROR_TEXT)
-                Severity.WARNING -> hex(StackDoctorColors.WARNING_TEXT)
-                Severity.INFO -> muted
-            }
-            val mark = if (d.severity == Severity.ERROR) "✖" else "⚠"
-            sb.append("<div style='margin:2px 0;'><span style='color:$color;'>$mark ")
-            sb.append(esc(d.title)).append("</span>")
-            d.hint?.let { sb.append("<br><span style='color:$muted;font-size:90%;'>&nbsp;&nbsp;&nbsp;${esc(it)}</span>") }
-            sb.append("</div>")
-        }
-        sb.append("</div>")
-    }
+    private fun hex(c: Color): String = ComposeHtml.hex(c)
 
-    private fun hex(c: Color): String = String.format("#%02x%02x%02x", c.red, c.green, c.blue)
-
-    private fun esc(s: String): String =
-        s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    private fun esc(s: String): String = ComposeHtml.esc(s)
 
     private companion object {
         const val ADD_HEALTHCHECK_HREF = "stackdoctor:add-healthcheck"

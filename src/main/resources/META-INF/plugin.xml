@@ -58,6 +58,12 @@
     ]]></description>
 
     <change-notes><![CDATA[
+        <h3>0.3.0</h3>
+        <ul>
+            <li><b>Merged preview.</b> A new <b>Merged preview</b> button combines any two compose files into one &mdash; pick a base (defaults to <code>docker-compose.yml</code>) and an overlay (e.g. <code>docker-compose.override.yml</code>) and see the effective configuration Docker would run, with the doctor checks re-run on the merged result and overlay-contributed values highlighted.</li>
+            <li><b>Collapsible warnings &amp; errors.</b> The diagnostics list at the bottom now has a header you can click to collapse it out of the way and expand it again.</li>
+            <li><b>Draggable nodes.</b> Drag service and file nodes to rearrange the map; the dependency arrows follow, and your layout is kept until you press <b>Reset layout</b> (or restart the IDE).</li>
+        </ul>
         <h3>0.2.1</h3>
         <ul>
             <li>The service edit form now includes an editable <b>Healthcheck</b> field, so a generated healthcheck can be tweaked in place.</li>
