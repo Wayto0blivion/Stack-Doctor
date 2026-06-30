@@ -14,3 +14,6 @@ out/
 *.crt
 *.p12
 certificate/
+
+# Local, project-scoped signing/publishing secrets (copy from .env.example). Never commit.
+.env

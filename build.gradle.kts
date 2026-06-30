@@ -51,6 +51,22 @@ kotlin {
     }
 }
 
+// Resolves a signing/publishing secret from an OS environment variable, falling back to a matching
+// `KEY=value` line in a gitignored, project-scoped `.env` file. Env vars win. Returns an *absent*
+// provider when neither is set, so a missing secret fails the signing task loudly instead of signing
+// with an empty value. Read via providers.fileContents to stay configuration-cache compatible.
+val dotenv: Provider<String> = providers.fileContents(layout.projectDirectory.file(".env")).asText.orElse("")
+fun secret(name: String): Provider<String> {
+    val fromDotenv = dotenv.map { text ->
+        text.lineSequence()
+            .map { it.trim() }
+            .firstOrNull { it.startsWith("$name=") }
+            ?.substringAfter('=')?.trim()?.removeSurrounding("\"")
+            ?: ""
+    }.filter { it.isNotBlank() }
+    return providers.environmentVariable(name).orElse(fromDotenv)
+}
+
 intellijPlatform {
     // Pure-Kotlin plugin with no Java/form sources, so form & @NotNull bytecode instrumentation
     // has nothing to do. Disabling it also avoids an Ant "taskdef" failure under the Gradle daemon.
@@ -70,22 +86,24 @@ intellijPlatform {
         }
     }
 
-    // Author-side signing. Paths and the key passphrase are read from environment variables so no
-    // secret ever lands in the repo. Reuse the SAME key + certificate for every future update.
+    // Author-side signing. Secrets come from environment variables, or — for convenient local use —
+    // from a gitignored, project-scoped `.env` (KEY=value per line). Env vars win; nothing is ever
+    // committed. Reuse the SAME key + certificate for every future update.
     //   CERTIFICATE_CHAIN_FILE  → absolute path to chain.crt
     //   PRIVATE_KEY_FILE        → absolute path to private.pem
     //   PRIVATE_KEY_PASSWORD    → the key's passphrase
+    //   PUBLISH_TOKEN           → Marketplace token (publishing only)
     // Run: ./gradlew signPlugin   (then verifyPluginSignature)
     signing {
-        certificateChainFile = layout.file(providers.environmentVariable("CERTIFICATE_CHAIN_FILE").map { File(it) })
-        privateKeyFile = layout.file(providers.environmentVariable("PRIVATE_KEY_FILE").map { File(it) })
-        password = providers.environmentVariable("PRIVATE_KEY_PASSWORD")
+        certificateChainFile = layout.file(secret("CERTIFICATE_CHAIN_FILE").map { File(it) })
+        privateKeyFile = layout.file(secret("PRIVATE_KEY_FILE").map { File(it) })
+        password = secret("PRIVATE_KEY_PASSWORD")
     }
 
     // Marketplace upload. PUBLISH_TOKEN comes from your Marketplace profile → My Tokens.
     // Run: ./gradlew publishPlugin
     publishing {
-        token = providers.environmentVariable("PUBLISH_TOKEN")
+        token = secret("PUBLISH_TOKEN")
     }
 }
 

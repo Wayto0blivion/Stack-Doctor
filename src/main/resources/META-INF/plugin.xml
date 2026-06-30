@@ -58,6 +58,12 @@
     ]]></description>
 
     <change-notes><![CDATA[
+        <h3>0.2.0</h3>
+        <ul>
+            <li><b>Edit services right from the map.</b> Click a service node to open an editable form for its parameters &mdash; image, ports, expose, depends_on, volumes, networks, env files, environment and restart &mdash; and Save writes the changes straight back into the compose file in one undoable step.</li>
+            <li>The map legend now describes what each service category is for, instead of repeating the same note.</li>
+            <li>Updated for the latest JetBrains IDEs; now supports 2025.3 and newer.</li>
+        </ul>
         <h3>0.1.1</h3>
         <ul>
             <li>New plugin logo and tool-window icon.</li>
