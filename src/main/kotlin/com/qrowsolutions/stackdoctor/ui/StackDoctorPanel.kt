@@ -2,12 +2,12 @@ package com.qrowsolutions.stackdoctor.ui
 
 import com.intellij.icons.AllIcons
 import com.intellij.openapi.application.ApplicationManager
-import com.intellij.openapi.application.ReadAction
 import com.intellij.openapi.command.WriteCommandAction
 import com.intellij.openapi.fileEditor.OpenFileDescriptor
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.ui.popup.JBPopupFactory
+import com.intellij.openapi.util.Computable
 import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.psi.PsiManager
 import com.qrowsolutions.stackdoctor.parser.ComposePsi
@@ -31,6 +31,11 @@ import com.qrowsolutions.stackdoctor.analysis.ServiceMapNode
 import com.qrowsolutions.stackdoctor.diagnostics.Diagnostic
 import com.qrowsolutions.stackdoctor.diagnostics.Severity
 import com.qrowsolutions.stackdoctor.inspection.HealthcheckWriter
+import com.qrowsolutions.stackdoctor.inspection.ServiceFieldWriter
+import com.qrowsolutions.stackdoctor.parser.ServiceField
+import com.qrowsolutions.stackdoctor.parser.ServiceFieldEdit
+import com.qrowsolutions.stackdoctor.parser.ServiceFields
+import org.jetbrains.yaml.psi.YAMLMapping
 import java.awt.BorderLayout
 import java.awt.Component
 import java.awt.Dimension
@@ -196,6 +201,29 @@ class StackDoctorPanel(private val project: Project) : JPanel(BorderLayout()) {
         refresh()
     }
 
+    /** Reads a service's currently-present parameters from its compose file as editable form fields. */
+    private fun readServiceFields(node: ServiceMapNode): List<ServiceField> {
+        val vf = LocalFileSystem.getInstance().findFileByPath(node.analysis.project.filePath) ?: return emptyList()
+        return ApplicationManager.getApplication().runReadAction(Computable {
+            if (project.isDisposed || !vf.isValid) return@Computable emptyList()
+            val yamlFile = PsiManager.getInstance(project).findFile(vf) as? YAMLFile ?: return@Computable emptyList()
+            val body = ComposePsi.serviceKeyValue(yamlFile, node.service.name)?.value as? YAMLMapping
+                ?: return@Computable emptyList()
+            ServiceFields.read(body)
+        })
+    }
+
+    /** Writes the form's changed fields back into the service's compose file in one undoable edit. */
+    private fun applyServiceEdits(node: ServiceMapNode, edits: List<ServiceFieldEdit>) {
+        if (edits.isEmpty()) return
+        val vf = LocalFileSystem.getInstance().findFileByPath(node.analysis.project.filePath) ?: return
+        val yamlFile = PsiManager.getInstance(project).findFile(vf) as? YAMLFile ?: return
+        WriteCommandAction.runWriteCommandAction(project, "Edit Service '${node.service.name}'", null, {
+            ServiceFieldWriter.apply(project, yamlFile, node.service.name, edits)
+        })
+        refresh()
+    }
+
     /** Writes the given healthchecks into the analysis's compose file in one undoable edit. */
     private fun applyHealthchecks(
         analysis: ComposeAnalysis,
@@ -247,6 +275,8 @@ class StackDoctorPanel(private val project: Project) : JPanel(BorderLayout()) {
             onSelect = { node -> selectFirstDiagnosticFor(node) },
             onActivate = { node -> openInEditor(node) },
             onGenerateHealthcheck = { node -> generateHealthcheckFor(node) },
+            fieldsFor = { node -> readServiceFields(node) },
+            onApplyServiceEdits = { node, edits -> applyServiceEdits(node, edits) },
         )
         graphPanel = panel
         graphHost.removeAll()
@@ -312,12 +342,12 @@ class StackDoctorPanel(private val project: Project) : JPanel(BorderLayout()) {
         }
         val serviceName = (node as? ServiceMapNode)?.service?.name
         val file = LocalFileSystem.getInstance().findFileByPath(analysis.project.filePath) ?: return
-        val offset = ReadAction.compute<Int?, RuntimeException> {
-            if (project.isDisposed || !file.isValid) return@compute null
-            if (serviceName == null) return@compute 0
-            val yamlFile = PsiManager.getInstance(project).findFile(file) as? YAMLFile ?: return@compute null
+        val offset = ApplicationManager.getApplication().runReadAction(Computable {
+            if (project.isDisposed || !file.isValid) return@Computable null
+            if (serviceName == null) return@Computable 0
+            val yamlFile = PsiManager.getInstance(project).findFile(file) as? YAMLFile ?: return@Computable null
             ComposePsi.serviceKeyValue(yamlFile, serviceName)?.textOffset
-        }
+        })
         OpenFileDescriptor(project, file, offset ?: 0).navigate(true)
     }
 

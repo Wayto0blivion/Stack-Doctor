@@ -1,5 +1,5 @@
-import org.jetbrains.intellij.platform.gradle.IntelliJPlatformType
 import org.jetbrains.intellij.platform.gradle.TestFrameworkType
+import org.jetbrains.kotlin.gradle.dsl.JvmDefaultMode
 import java.io.File
 
 plugins {
@@ -20,10 +20,10 @@ repositories {
 
 dependencies {
     intellijPlatform {
-        create(
-            IntelliJPlatformType.IntellijIdeaCommunity,
-            providers.gradleProperty("platformVersion").get(),
-        )
+        // IntelliJ IDEA Community is no longer published as a standalone artifact since 2025.3 (253);
+        // the unified `intellijIdea(...)` dependency is the supported way to build against current
+        // releases. We still depend only on platform + YAML APIs, so the plugin runs in every IDE.
+        intellijIdea(providers.gradleProperty("platformVersion").get())
 
         // YAML PSI support (bundled in every IDE) — used to parse docker-compose files.
         bundledPlugins(
@@ -40,6 +40,15 @@ dependencies {
 
 kotlin {
     jvmToolchain(21)
+
+    // Compile interface default methods as real JVM defaults, without Kotlin compatibility stubs.
+    // Otherwise Kotlin generates delegating overrides for the default methods we inherit from
+    // ToolWindowFactory (getIcon/getAnchor/isApplicable/isDoNotActivateOnStart/manage), which the
+    // plugin verifier reports as deprecated/experimental API usages. Safe here: this is a leaf
+    // plugin that exposes no interfaces for external code to implement.
+    compilerOptions {
+        jvmDefault = JvmDefaultMode.NO_COMPATIBILITY
+    }
 }
 
 intellijPlatform {
