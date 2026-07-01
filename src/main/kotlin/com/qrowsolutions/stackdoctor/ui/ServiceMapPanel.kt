@@ -19,6 +19,8 @@ import com.qrowsolutions.stackdoctor.analysis.ServiceMap
 import com.qrowsolutions.stackdoctor.analysis.ServiceMapNode
 import com.qrowsolutions.stackdoctor.diagnostics.Severity
 import com.qrowsolutions.stackdoctor.model.ComposeService
+import com.qrowsolutions.stackdoctor.model.VolumeMount
+import com.qrowsolutions.stackdoctor.model.VolumeSummary
 import com.qrowsolutions.stackdoctor.parser.FieldKind
 import com.qrowsolutions.stackdoctor.parser.ServiceField
 import com.qrowsolutions.stackdoctor.parser.ServiceFieldEdit
@@ -51,6 +53,7 @@ import javax.swing.JPanel
 import javax.swing.ScrollPaneConstants
 import javax.swing.Scrollable
 import javax.swing.SwingUtilities
+import javax.swing.ToolTipManager
 import javax.swing.event.HyperlinkEvent
 import kotlin.math.abs
 
@@ -76,7 +79,10 @@ class ServiceMapPanel(
 ) : JPanel() {
 
     private val nodeWidth = JBUI.scale(172)
-    private val nodeHeight = JBUI.scale(64)
+    // Tall enough for title + sub-line + two badge rows, so a busy node (ports + healthcheck +
+    // volumes) wraps its badges onto a second line that still sits inside the card. Baselines below
+    // keep a steady 16px rhythm: 21 (title), 38 (sub-line), 54 (badge row 1), 70 (badge row 2).
+    private val nodeHeight = JBUI.scale(80)
     private val hGap = JBUI.scale(84)
     private val vGap = JBUI.scale(28)
     private val bandGap = JBUI.scale(40)
@@ -104,6 +110,9 @@ class ServiceMapPanel(
         // instead of being hidden behind a solid fill (which also flashed on activation). The nodes
         // paint their own fills in paintNode, so they stay solid. See memory: ide-background-image.
         isOpaque = false
+        // Enable per-node tooltips (getToolTipText resolves the node under the cursor); used to list
+        // a service's attached volumes and whether each one persists.
+        ToolTipManager.sharedInstance().registerComponent(this)
         computeLayout()
         addMouseListener(object : MouseAdapter() {
             override fun mousePressed(e: MouseEvent) {
@@ -171,6 +180,13 @@ class ServiceMapPanel(
 
     private fun nodeAt(p: Point): String? =
         bounds.entries.firstOrNull { it.value.contains(p) }?.key
+
+    /** Tooltip for the node under the cursor: a service's attached volumes and their persistence. */
+    override fun getToolTipText(event: MouseEvent): String? {
+        val node = map.node(nodeAt(event.point)) as? ServiceMapNode ?: return null
+        val summary = VolumeSummary.of(node.service)
+        return if (summary.isEmpty) null else volumeTooltipHtml(summary)
+    }
 
     fun select(node: MapNode?) {
         selected = node?.id
@@ -316,8 +332,19 @@ class ServiceMapPanel(
         }
     }
 
-    /** Shared node chrome (shadow, glow, body, accent bar, border). Returns the text inset x. */
-    private fun paintNodeBody(g2: Graphics2D, id: String, rect: Rectangle, severity: Severity?, accent: Color): Int {
+    /**
+     * Shared node chrome (shadow, glow, body, accent bar, border). Returns the text inset x.
+     * [volumeBorder], when set, tints the idle border to advertise the node's storage persistence;
+     * hover/selection still take over the border so the interaction feedback is never lost.
+     */
+    private fun paintNodeBody(
+        g2: Graphics2D,
+        id: String,
+        rect: Rectangle,
+        severity: Severity?,
+        accent: Color,
+        volumeBorder: VolumeBorder? = null,
+    ): Int {
         val isActive = id == selected
         val isHover = id == hovered
 
@@ -344,8 +371,20 @@ class ServiceMapPanel(
         g2.fillRoundRect(rect.x, rect.y, accentWidth + arc, rect.height, arc, arc)
         g2.clip = accentClip
 
-        g2.stroke = BasicStroke(JBUIScale.scale(if (isActive) 2.2f else if (isHover) 1.8f else 1.2f))
-        g2.color = if (isActive || isHover) StackDoctorColors.SELECTED_BORDER else StackDoctorColors.NODE_BORDER
+        // Idle border reflects volume persistence; hover/selection override it with the accent so the
+        // active node still reads as active.
+        val idleVolume = volumeBorder?.takeIf { !isActive && !isHover }
+        g2.stroke = when {
+            isActive -> BasicStroke(JBUIScale.scale(2.2f))
+            isHover -> BasicStroke(JBUIScale.scale(1.8f))
+            idleVolume != null -> idleVolume.stroke()
+            else -> BasicStroke(JBUIScale.scale(1.2f))
+        }
+        g2.color = when {
+            isActive || isHover -> StackDoctorColors.SELECTED_BORDER
+            idleVolume != null -> idleVolume.color
+            else -> StackDoctorColors.NODE_BORDER
+        }
         g2.drawRoundRect(rect.x, rect.y, rect.width, rect.height, arc, arc)
 
         return rect.x + accentWidth + JBUI.scale(10)
@@ -354,7 +393,8 @@ class ServiceMapPanel(
     private fun paintServiceNode(g2: Graphics2D, node: ServiceMapNode, rect: Rectangle) {
         val svc = node.service
         val category = ServiceCategory.of(svc)
-        val left = paintNodeBody(g2, node.id, rect, map.worstSeverity[node.id], category.accent)
+        val volumes = VolumeSummary.of(svc)
+        val left = paintNodeBody(g2, node.id, rect, map.worstSeverity[node.id], category.accent, volumeBorderFor(volumes))
         val textWidth = rect.width - accentWidth - JBUI.scale(20)
 
         g2.font = JBUI.Fonts.label().asBold()
@@ -370,7 +410,7 @@ class ServiceMapPanel(
         g2.color = UIUtil.getContextHelpForeground()
         g2.drawString(clip(subLine(svc), g2.fontMetrics, textWidth), left, rect.y + JBUI.scale(38))
 
-        paintServiceBadges(g2, node, rect, left)
+        paintServiceBadges(g2, node, rect, left, volumes)
     }
 
     private fun paintFileNode(g2: Graphics2D, node: FileMapNode, rect: Rectangle) {
@@ -394,7 +434,7 @@ class ServiceMapPanel(
         paintFileBadges(g2, node, rect, left)
     }
 
-    private fun paintServiceBadges(g2: Graphics2D, node: ServiceMapNode, rect: Rectangle, left: Int) {
+    private fun paintServiceBadges(g2: Graphics2D, node: ServiceMapNode, rect: Rectangle, left: Int, volumes: VolumeSummary) {
         val svc = node.service
         val parts = mutableListOf<Pair<String, JBColor>>()
 
@@ -412,6 +452,13 @@ class ServiceMapPanel(
             svc.healthcheckDisabled -> parts += "healthcheck off" to StackDoctorColors.WARNING_TEXT
             svc.hasHealthcheck -> parts += "♥ healthy" to StackDoctorColors.OK_TEXT
         }
+        // Storage: persistent (named/bind) volumes first, then a caution flag for anonymous ones.
+        if (volumes.persistentCount > 0) {
+            parts += "▤ ${volumes.persistentCount} persistent" to StackDoctorColors.VOLUME_PERSISTENT
+        }
+        if (volumes.hasAnonymous) {
+            parts += "${volumes.anonymous.size} unnamed" to StackDoctorColors.VOLUME_EPHEMERAL
+        }
         paintBadges(g2, parts, rect, left)
     }
 
@@ -426,15 +473,31 @@ class ServiceMapPanel(
         paintBadges(g2, parts, rect, left)
     }
 
+    /**
+     * Draws the badges left-to-right, wrapping onto a second row when the next one wouldn't fit
+     * before the node's right edge — so no badge ever spills outside the card. A badge that is wider
+     * than a full row on its own is clipped with an ellipsis; anything past the second row is dropped.
+     */
     private fun paintBadges(g2: Graphics2D, parts: List<Pair<String, JBColor>>, rect: Rectangle, left: Int) {
         g2.font = JBUI.Fonts.smallFont()
+        val fm = g2.fontMetrics
+        val gap = JBUI.scale(10)
+        val rightEdge = rect.x + rect.width - JBUI.scale(10)
+        val rowY = intArrayOf(rect.y + JBUI.scale(54), rect.y + JBUI.scale(70))
+        var row = 0
         var x = left
-        val y = rect.y + JBUI.scale(54)
         for ((text, color) in parts) {
+            val w = fm.stringWidth(text)
+            // Wrap to the next row when this badge won't fit and we're not already at the row start.
+            if (x > left && x + w > rightEdge) {
+                row++
+                if (row >= rowY.size) break
+                x = left
+            }
             g2.color = color
-            g2.drawString(text, x, y)
-            x += g2.fontMetrics.stringWidth(text) + JBUI.scale(10)
-            if (x > rect.x + rect.width - JBUI.scale(20)) break
+            val drawn = if (x + w > rightEdge) clip(text, fm, rightEdge - x) else text
+            g2.drawString(drawn, x, rowY[row])
+            x += fm.stringWidth(drawn) + gap
         }
     }
 
@@ -442,6 +505,57 @@ class ServiceMapPanel(
         Severity.ERROR -> StackDoctorColors.ERROR_FILL_TOP to StackDoctorColors.ERROR_FILL_BOTTOM
         Severity.WARNING -> StackDoctorColors.WARNING_FILL_TOP to StackDoctorColors.WARNING_FILL_BOTTOM
         else -> StackDoctorColors.NODE_FILL_TOP to StackDoctorColors.NODE_FILL_BOTTOM
+    }
+
+    // ---- Volumes -----------------------------------------------------------------------------
+
+    /**
+     * The idle border a service node gets from its volumes: a solid green ring when it has any
+     * persistent storage (named volume or host bind), else a dashed amber ring when it only has
+     * anonymous (unnamed) volumes whose data is lost on recreate. Persistent wins so a service with
+     * both still reads as "has real storage" — the "N unnamed" badge/tooltip flags the anonymous risk.
+     */
+    private fun volumeBorderFor(volumes: VolumeSummary): VolumeBorder? = when {
+        volumes.hasPersistent -> VolumeBorder.PERSISTENT
+        volumes.hasAnonymous -> VolumeBorder.EPHEMERAL
+        else -> null
+    }
+
+    /** A node's storage-persistence border style. [color] is a JBColor, usable directly as g2.color. */
+    private enum class VolumeBorder(val color: JBColor, private val width: Float, private val dashed: Boolean) {
+        PERSISTENT(StackDoctorColors.VOLUME_PERSISTENT, 1.8f, false),
+        EPHEMERAL(StackDoctorColors.VOLUME_EPHEMERAL, 1.6f, true);
+
+        fun stroke(): BasicStroke = if (dashed) {
+            BasicStroke(
+                JBUIScale.scale(width), BasicStroke.CAP_BUTT, BasicStroke.JOIN_ROUND,
+                10f, floatArrayOf(JBUIScale.scale(5f), JBUIScale.scale(4f)), 0f,
+            )
+        } else {
+            BasicStroke(JBUIScale.scale(width))
+        }
+    }
+
+    /** Tooltip HTML: every attached volume as `source → target`, tagged with its kind and persistence. */
+    private fun volumeTooltipHtml(volumes: VolumeSummary): String {
+        val fg = hex(UIUtil.getLabelForeground())
+        val muted = hex(UIUtil.getContextHelpForeground())
+        val sb = StringBuilder()
+        sb.append("<html><body style='font-family:sans-serif;color:$fg;'>")
+        sb.append("<div style='font-weight:bold;margin-bottom:3px;'>Volumes</div>")
+        for (v in volumes.named) volumeRow(sb, v, "named · persistent", StackDoctorColors.VOLUME_PERSISTENT, muted)
+        for (v in volumes.binds) volumeRow(sb, v, "bind · host path", StackDoctorColors.VOLUME_PERSISTENT, muted)
+        for (v in volumes.anonymous) volumeRow(sb, v, "anonymous · ephemeral", StackDoctorColors.VOLUME_EPHEMERAL, muted)
+        sb.append("</body></html>")
+        return sb.toString()
+    }
+
+    private fun volumeRow(sb: StringBuilder, v: VolumeMount, label: String, color: JBColor, muted: String) {
+        sb.append("<div style='margin:1px 0;'>")
+        sb.append("<span style='color:${hex(color)};'>▤</span> ")
+        sb.append(esc(v.source ?: "(anonymous)")).append(" &#8594; ").append(esc(v.target ?: "?")).append(' ')
+        sb.append("<span style='color:$muted;font-size:90%;'>").append(esc(label)).append("</span>")
+        sb.append("</div>")
     }
 
     private fun withAlpha(c: Color, alpha: Int): Color = Color(c.red, c.green, c.blue, alpha)

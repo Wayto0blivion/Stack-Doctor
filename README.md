@@ -24,6 +24,12 @@ is covered by automated tests. Install from the JetBrains Marketplace, or build 
   curved arrows for `depends_on` (and legacy `links`). Category accents, health/port badges, hover
   highlighting, and a severity tint make problem services stand out. File nodes show a service count
   and an error/warning summary. A **Legend** button explains every symbol, line and colour.
+- **Volumes & persistence at a glance.** Every service shows the volumes it mounts and how safely
+  their data is kept. A **solid green border** and a `▤ N persistent` badge mark services with named
+  volumes or host binds — data that survives a container recreate. A **dashed amber border** and an
+  `N unnamed` badge flag services that only have anonymous (unnamed) volumes, whose data Docker names
+  randomly and silently loses on recreate. Hover a service to list each mount as `source → target`
+  with its kind.
 - **Draggable nodes.** Drag any service or file node to rearrange the map; the dependency arrows
   follow. Your layout is kept for the session; **Reset layout** restores the automatic arrangement.
 - **Edit services in place.** Click a service node to open an editable form for its parameters —

@@ -1,6 +1,9 @@
 # Sample stack used to exercise Stack Doctor. It intentionally contains several
 # of the problems the doctor detects (loopback-bound port, missing healthcheck,
-# undeclared volume, missing env_file, bad bind path, proxy with no ports).
+# undeclared volume, missing env_file, bad bind path, proxy with no ports) and a
+# mix of volume kinds so the map's persistence borders show all three states:
+# a named volume (database) and a host bind (backend) read as persistent, while
+# the cache's anonymous volume reads as ephemeral.
 services:
   proxy:
     image: nginx:alpine
@@ -40,6 +43,8 @@ services:
 
   cache:
     image: redis:7
+    volumes:
+      - /data   # anonymous volume: Redis persists here, but its data is silently lost on recreate
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s

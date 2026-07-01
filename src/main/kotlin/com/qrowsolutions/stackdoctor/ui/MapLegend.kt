@@ -39,6 +39,15 @@ object MapLegend {
         badge(sb, "healthcheck off", StackDoctorColors.WARNING_TEXT, "A healthcheck is present but disabled.", muted)
         badge(sb, "✖ N errors / ⚠ N warnings", StackDoctorColors.ERROR_TEXT, "On a file node: totals across its services.", muted)
 
+        section(sb, "Storage", fg)
+        row(sb, ring(StackDoctorColors.VOLUME_PERSISTENT), "Persistent border", "Solid coloured outline: the service mounts a named volume or host bind, so its data survives a container recreate.", muted)
+        row(sb, ring(StackDoctorColors.VOLUME_EPHEMERAL), "Ephemeral border", "Dashed outline: the service has only anonymous (unnamed) volumes — Docker names them randomly and the data is easily lost.", muted)
+        badge(sb, "▤ N persistent", StackDoctorColors.VOLUME_PERSISTENT, "Count of named-volume and host-bind mounts on the service.", muted)
+        badge(sb, "N unnamed", StackDoctorColors.VOLUME_EPHEMERAL, "Count of anonymous volumes — flagged because their data isn't reliably kept.", muted)
+        sb.append("<div style='color:$muted;font-size:88%;margin:3px 0 0 16px;font-style:italic;'>")
+        sb.append("Hover a service to list its volumes and where each is mounted.")
+        sb.append("</div>")
+
         sb.append("<div style='color:$muted;font-size:88%;margin-top:8px;'>")
         sb.append("Click a node for its breakdown · double-click to open it in the editor.")
         sb.append("</div>")
@@ -70,6 +79,10 @@ object MapLegend {
 
     private fun line(color: JBColor, glyph: String): String =
         "<span style='color:${hex(color)};font-weight:bold;'>${esc(glyph)}</span>"
+
+    /** A small coloured rectangle-outline glyph standing in for a node's storage-persistence border. */
+    private fun ring(color: JBColor): String =
+        "<span style='color:${hex(color)};font-weight:bold;'>▭</span>"
 
     private fun fill(body: JBColor, edge: JBColor): String =
         "<span style='color:${hex(edge)};'>▮▮</span>"

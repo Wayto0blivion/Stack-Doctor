@@ -50,6 +50,12 @@ object StackDoctorColors {
     val ERROR_TEXT = JBColor.namedColor("Label.errorForeground", JBColor(Color(0xC0392B), Color(0xE57373)))
     val OK_TEXT = JBColor.namedColor("Label.successForeground", JBColor(Color(0x2E8B57), Color(0x6FCF97)))
 
+    // Storage persistence, shown as a node border + badge. A calm teal/green reads as "data is safe"
+    // for named volumes and host binds; an amber matches the existing "caution" hue for anonymous
+    // (unnamed) volumes, whose data is silently lost on a container recreate.
+    val VOLUME_PERSISTENT = JBColor.namedColor("Label.successForeground", JBColor(Color(0x2E8B57), Color(0x6FCF97)))
+    val VOLUME_EPHEMERAL = JBColor.namedColor("Component.warningFocusColor", JBColor(Color(0xB5731A), Color(0xE0A85A)))
+
     // Accent for compose-file (root) nodes in the map — the theme's own accent colour.
     val ACCENT_FILE = ACCENT
 

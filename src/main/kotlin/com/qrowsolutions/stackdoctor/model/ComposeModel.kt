@@ -73,4 +73,53 @@ data class VolumeMount(
     val target: String?,
     val isNamedVolume: Boolean,
     val isBindMount: Boolean,
-)
+) {
+    /** How this mount stores data, driving the map's persistence borders/badges. */
+    val kind: VolumeKind
+        get() = when {
+            isBindMount -> VolumeKind.BIND
+            isNamedVolume -> VolumeKind.NAMED
+            else -> VolumeKind.ANONYMOUS
+        }
+
+    /** True when the data outlives the container (named volume or host bind), vs. an anonymous volume. */
+    val isPersistent: Boolean get() = kind != VolumeKind.ANONYMOUS
+}
+
+/**
+ * The three ways a compose volume stores data, ordered from safest to most surprising:
+ *  * [NAMED]     — a Docker-managed named volume; survives `down`, removed only with `down -v`.
+ *  * [BIND]      — a host path mounted in; data lives on the host filesystem.
+ *  * [ANONYMOUS] — an unnamed volume (only a container path given); Docker invents a random name for
+ *                  it, so it's easily orphaned and is the classic cause of "my data disappeared".
+ */
+enum class VolumeKind { NAMED, BIND, ANONYMOUS }
+
+/**
+ * A per-service roll-up of its [VolumeMount]s by [VolumeKind], so the map can decide a node's
+ * border/badges once from pure data (and unit-test it without any UI). "Persistent" groups named
+ * volumes and host binds — anything whose data survives a container recreate.
+ */
+data class VolumeSummary(
+    val named: List<VolumeMount>,
+    val binds: List<VolumeMount>,
+    val anonymous: List<VolumeMount>,
+) {
+    /** Named volumes + host binds: mounts whose data outlives the container. */
+    val persistentCount: Int get() = named.size + binds.size
+    val hasPersistent: Boolean get() = persistentCount > 0
+    val hasAnonymous: Boolean get() = anonymous.isNotEmpty()
+    val total: Int get() = named.size + binds.size + anonymous.size
+    val isEmpty: Boolean get() = total == 0
+
+    companion object {
+        fun of(service: ComposeService): VolumeSummary {
+            val byKind = service.volumes.groupBy { it.kind }
+            return VolumeSummary(
+                named = byKind[VolumeKind.NAMED].orEmpty(),
+                binds = byKind[VolumeKind.BIND].orEmpty(),
+                anonymous = byKind[VolumeKind.ANONYMOUS].orEmpty(),
+            )
+        }
+    }
+}
