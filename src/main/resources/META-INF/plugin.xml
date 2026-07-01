@@ -6,8 +6,9 @@
     <description><![CDATA[
         <h2>Stack Doctor — Docker Compose service map &amp; network doctor</h2>
         <p>
-            Turns a <code>docker-compose.yml</code> into a visual <b>service dependency map</b> and runs
-            a set of <b>"doctor" checks</b> for the networking mistakes that waste hours:
+            Turns your <code>docker-compose</code> files into a visual <b>service dependency map</b>,
+            lets you <b>edit services right from the map</b>, and runs a set of <b>"doctor" checks</b>
+            for the networking mistakes that waste hours:
         </p>
         <ul>
             <li>Service dependency graph (<code>depends_on</code> / shared networks)</li>
@@ -15,7 +16,7 @@
             <li>Missing healthchecks on services other containers depend on</li>
             <li>Suspicious / non-existent host volume paths</li>
             <li><code>depends_on</code> pointing at services that don't exist, and dependency cycles</li>
-            <li>Missing <code>env_file</code> references</li>
+            <li>Missing <code>env_file</code> references, and host-port conflicts between services</li>
             <li>Ports that are <code>expose</code>d internally vs actually published</li>
         </ul>
         <h2>Getting started</h2>
@@ -32,17 +33,30 @@
                 <b>Open the tool window.</b> Go to <code>View | Tool Windows | Stack Doctor</code>
                 (it docks on the right). You'll see every Compose file as a root node, with its
                 services branching to the right and <code>depends_on</code> arrows showing what
-                starts before what.
+                starts before what. <b>Drag any node</b> to rearrange the map (the arrows follow);
+                <b>Reset layout</b> restores the automatic arrangement.
             </li>
             <li>
                 <b>Read the diagnosis.</b> Findings are listed below the map and highlighted inline
                 in the YAML editor. Nodes tint amber or red when a service &mdash; or a whole file
-                &mdash; has warnings or errors, so problem areas stand out at a glance.
+                &mdash; has warnings or errors, so problem areas stand out at a glance. Click the
+                <b>Warnings &amp; errors</b> header to collapse the list when you want more map.
             </li>
             <li>
-                <b>Drill in.</b> Click any node for a line-by-line breakdown of its configuration
-                and issues; double-click to jump straight to it in the editor. Not sure what a
-                symbol, line, or colour means? Hit <b>Legend</b> in the toolbar.
+                <b>Edit a service.</b> Click a service node to open an editable form for its
+                parameters &mdash; image, ports, expose, <code>depends_on</code>, volumes, networks,
+                env files, environment, healthcheck and restart policy &mdash; and <b>Save</b> writes
+                the changes straight back into the compose file in one undoable step. Use
+                <b>Add field</b> to add a parameter the service doesn't have yet. Click a file node
+                for its service roster; double-click either to jump to it in the editor. Not sure
+                what a symbol, line or colour means? Hit <b>Legend</b>.
+            </li>
+            <li>
+                <b>Preview a merge.</b> Split your config across a base and an override
+                (<code>docker-compose.override.yml</code>, a <code>*.prod.yml</code>, etc.)? Click
+                <b>Merged preview</b>, pick the two files, and see the effective configuration Docker
+                would actually run &mdash; with the doctor checks re-run on the merged result and the
+                values the overlay contributed highlighted.
             </li>
             <li>
                 <b>Fix it.</b> Apply the inline quick-fixes on highlighted YAML (bind a port to all
