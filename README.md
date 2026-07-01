@@ -119,4 +119,4 @@ Install the resulting zip via **Settings → Plugins → ⚙ → Install Plugin 
 
 ## License
 
-TBD.
+[Apache License 2.0](LICENSE). Copyright © 2026 Qrow Solutions.
