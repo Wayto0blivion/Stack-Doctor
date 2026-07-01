@@ -1,5 +1,6 @@
 package com.qrowsolutions.stackdoctor.ui
 
+import com.intellij.icons.AllIcons
 import com.intellij.openapi.ui.ComboBox
 import com.intellij.openapi.ui.popup.JBPopup
 import com.intellij.openapi.ui.popup.JBPopupFactory
@@ -21,6 +22,7 @@ import com.qrowsolutions.stackdoctor.model.ComposeService
 import com.qrowsolutions.stackdoctor.parser.FieldKind
 import com.qrowsolutions.stackdoctor.parser.ServiceField
 import com.qrowsolutions.stackdoctor.parser.ServiceFieldEdit
+import com.qrowsolutions.stackdoctor.parser.ServiceFields
 import java.awt.BasicStroke
 import java.awt.BorderLayout
 import java.awt.Color
@@ -35,6 +37,8 @@ import java.awt.Graphics2D
 import java.awt.Point
 import java.awt.Rectangle
 import java.awt.RenderingHints
+import java.awt.event.ComponentAdapter
+import java.awt.event.ComponentEvent
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
 import java.awt.event.MouseMotionAdapter
@@ -46,6 +50,7 @@ import javax.swing.JEditorPane
 import javax.swing.JPanel
 import javax.swing.ScrollPaneConstants
 import javax.swing.Scrollable
+import javax.swing.SwingUtilities
 import javax.swing.event.HyperlinkEvent
 import kotlin.math.abs
 
@@ -513,6 +518,8 @@ class ServiceMapPanel(
         val muted = UIUtil.getContextHelpForeground()
         val fields = fieldsFor(node)
         val collectors = mutableListOf<Pair<ServiceField, () -> String>>()
+        val presentKeys = fields.mapTo(mutableSetOf()) { it.key }
+        val helpAreas = mutableListOf<JBTextArea>()
         var firstEditor: JComponent? = null
 
         val form = FormPanel().apply {
@@ -536,36 +543,17 @@ class ServiceMapPanel(
             })
         }
 
+        // Shown only while the service has no editable parameters; removed when the first is added.
+        var placeholder: JBTextArea? = null
         if (fields.isEmpty()) {
-            form.add(mutedLabel("This service declares no editable parameters.", muted))
+            placeholder = helpComponent("This service declares no editable parameters. Use “Add field” to add one.", muted)
+            helpAreas += placeholder
+            form.add(placeholder)
         }
 
         for (field in fields) {
-            val row = JPanel().apply {
-                layout = BoxLayout(this, BoxLayout.Y_AXIS)
-                isOpaque = false
-                alignmentX = Component.LEFT_ALIGNMENT
-                border = JBUI.Borders.emptyBottom(9)
-            }
-            row.add(JBLabel(field.label).apply {
-                font = font.deriveFont(Font.BOLD)
-                alignmentX = Component.LEFT_ALIGNMENT
-            })
-
-            if (field.editable) {
-                val editor = buildEditor(field)
-                editor.component.alignmentX = Component.LEFT_ALIGNMENT
-                row.add(editor.component)
-                if (firstEditor == null) firstEditor = editor.focus
-                collectors += field to editor.read
-            } else {
-                row.add(JBLabel(field.value.replace("\n", ", ")).apply { alignmentX = Component.LEFT_ALIGNMENT })
-            }
-
-            val help = field.note?.let { "${field.explanation}  $it" } ?: field.explanation
-            row.add(mutedLabel(help, muted))
-            row.maximumSize = Dimension(Int.MAX_VALUE, row.preferredSize.height)
-            form.add(row)
+            val focus = addFieldRow(form, field, collectors, muted, helpAreas)
+            if (firstEditor == null) firstEditor = focus
         }
 
         val scroll = JBScrollPane(form).apply {
@@ -574,13 +562,67 @@ class ServiceMapPanel(
             preferredSize = Dimension(JBUI.scale(400), JBUI.scale(380))
         }
 
+        // Wrap each help line to the live viewport width (and re-wrap on resize), so long hints —
+        // like the healthcheck example — wrap instead of bleeding past the popup's right edge.
+        fun relayoutHelp() {
+            val viewportWidth = scroll.viewport.width
+            if (viewportWidth <= 0) return
+            val w = (viewportWidth - JBUI.scale(16)).coerceAtLeast(JBUI.scale(120))
+            for (area in helpAreas) {
+                area.setSize(w, Short.MAX_VALUE.toInt())
+                val size = Dimension(w, area.preferredSize.height)
+                area.preferredSize = size
+                area.maximumSize = size
+            }
+            form.revalidate()
+            form.repaint()
+        }
+        scroll.addComponentListener(object : ComponentAdapter() {
+            override fun componentResized(e: ComponentEvent) = relayoutHelp()
+        })
+
+        val addFieldButton = JButton("Add field", AllIcons.General.Add).apply {
+            toolTipText = "Add a parameter this service doesn't declare yet (healthcheck, restart, expose, …)"
+        }
+        fun refreshAddState() {
+            addFieldButton.isEnabled = ServiceFields.addableTemplates(presentKeys).isNotEmpty()
+        }
+        addFieldButton.addActionListener {
+            val templates = ServiceFields.addableTemplates(presentKeys)
+            if (templates.isEmpty()) return@addActionListener
+            val labels = templates.map { it.label }
+            JBPopupFactory.getInstance().createPopupChooserBuilder(labels)
+                .setTitle("Add field")
+                .setItemChosenCallback { chosen ->
+                    val template = templates[labels.indexOf(chosen)]
+                    presentKeys.add(template.key)
+                    placeholder?.let { form.remove(it); placeholder = null }
+                    val focus = addFieldRow(form, template, collectors, muted, helpAreas)
+                    refreshAddState()
+                    relayoutHelp()
+                    focus?.let { f ->
+                        SwingUtilities.invokeLater {
+                            f.requestFocusInWindow()
+                            (f.parent as? JComponent)?.let { row -> form.scrollRectToVisible(row.bounds) }
+                        }
+                    }
+                }
+                .createPopup()
+                .showUnderneathOf(addFieldButton)
+        }
+        refreshAddState()
+
         val saveButton = JButton("Save")
         val cancelButton = JButton("Cancel")
         val content = JPanel(BorderLayout()).apply {
             add(scroll, BorderLayout.CENTER)
-            add(JPanel(FlowLayout(FlowLayout.RIGHT, JBUI.scale(6), JBUI.scale(4))).apply {
-                add(cancelButton)
-                add(saveButton)
+            add(JPanel(BorderLayout()).apply {
+                border = JBUI.Borders.empty(4, 6)
+                add(addFieldButton, BorderLayout.WEST)
+                add(JPanel(FlowLayout(FlowLayout.RIGHT, JBUI.scale(6), 0)).apply {
+                    add(cancelButton)
+                    add(saveButton)
+                }, BorderLayout.EAST)
             }, BorderLayout.SOUTH)
         }
 
@@ -607,6 +649,50 @@ class ServiceMapPanel(
 
         openPopup = popup
         popup.show(RelativePoint(this, Point(rect.x + rect.width + JBUI.scale(8), rect.y)))
+        // Now that the popup has a real width, wrap the help text to it.
+        SwingUtilities.invokeLater { relayoutHelp() }
+    }
+
+    /**
+     * Builds one labelled field row — bold label, an editor (or read-only value), then help text —
+     * appends it to [form], and registers an editable field's collector. Returns the editor to focus,
+     * or null for a read-only field. Used for both the initially-present fields and ones added later.
+     */
+    private fun addFieldRow(
+        form: JComponent,
+        field: ServiceField,
+        collectors: MutableList<Pair<ServiceField, () -> String>>,
+        muted: Color,
+        helpAreas: MutableList<JBTextArea>,
+    ): JComponent? {
+        val row = JPanel().apply {
+            layout = BoxLayout(this, BoxLayout.Y_AXIS)
+            isOpaque = false
+            alignmentX = Component.LEFT_ALIGNMENT
+            border = JBUI.Borders.emptyBottom(9)
+        }
+        row.add(JBLabel(field.label).apply {
+            font = font.deriveFont(Font.BOLD)
+            alignmentX = Component.LEFT_ALIGNMENT
+        })
+
+        var focus: JComponent? = null
+        if (field.editable) {
+            val editor = buildEditor(field)
+            editor.component.alignmentX = Component.LEFT_ALIGNMENT
+            row.add(editor.component)
+            focus = editor.focus
+            collectors += field to editor.read
+        } else {
+            row.add(JBLabel(field.value.replace("\n", ", ")).apply { alignmentX = Component.LEFT_ALIGNMENT })
+        }
+
+        val help = field.note?.let { "${field.explanation}  $it" } ?: field.explanation
+        val helpArea = helpComponent(help, muted)
+        helpAreas += helpArea
+        row.add(helpArea)
+        form.add(row)
+        return focus
     }
 
     /** Header shown above the form: this service's findings, plus an "add healthcheck" link if needed. */
@@ -656,8 +742,19 @@ class ServiceMapPanel(
         }
     }
 
-    private fun mutedLabel(text: String, color: Color): JBLabel =
-        JBLabel("<html><div style='width:340px;'>${esc(text)}</div></html>").apply {
+    /**
+     * Muted, wrapping help text. A line-wrapping JBTextArea (not a fixed-width HTML label), so the
+     * text wraps to the popup's actual width — set by `relayoutHelp` from the live viewport and
+     * updated on resize — instead of bleeding past the right edge the way a fixed-width label did.
+     */
+    private fun helpComponent(text: String, color: Color): JBTextArea =
+        JBTextArea(text).apply {
+            isEditable = false
+            isFocusable = false
+            isOpaque = false
+            lineWrap = true
+            wrapStyleWord = true
+            border = null
             foreground = color
             font = JBUI.Fonts.smallFont()
             alignmentX = Component.LEFT_ALIGNMENT

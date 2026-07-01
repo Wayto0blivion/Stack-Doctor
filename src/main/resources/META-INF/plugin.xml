@@ -63,6 +63,7 @@
             <li><b>Merged preview.</b> A new <b>Merged preview</b> button combines any two compose files into one &mdash; pick a base (defaults to <code>docker-compose.yml</code>) and an overlay (e.g. <code>docker-compose.override.yml</code>) and see the effective configuration Docker would run, with the doctor checks re-run on the merged result and overlay-contributed values highlighted.</li>
             <li><b>Collapsible warnings &amp; errors.</b> The diagnostics list at the bottom now has a header you can click to collapse it out of the way and expand it again.</li>
             <li><b>Draggable nodes.</b> Drag service and file nodes to rearrange the map; the dependency arrows follow, and your layout is kept until you press <b>Reset layout</b> (or restart the IDE).</li>
+            <li><b>Add fields from the service form.</b> The edit form now has an <b>Add field</b> button to add parameters a service doesn't have yet &mdash; healthcheck, restart policy, expose, and more &mdash; then fill them in and Save. Long field hints now wrap instead of being clipped at the popup edge.</li>
         </ul>
         <h3>0.2.1</h3>
         <ul>

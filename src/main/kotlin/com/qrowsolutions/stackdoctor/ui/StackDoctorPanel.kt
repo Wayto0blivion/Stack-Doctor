@@ -268,8 +268,11 @@ class StackDoctorPanel(private val project: Project) : JPanel(BorderLayout()) {
     private fun applyServiceEdits(node: ServiceMapNode, edits: List<ServiceFieldEdit>) {
         if (edits.isEmpty()) return
         val vf = LocalFileSystem.getInstance().findFileByPath(node.analysis.project.filePath) ?: return
-        val yamlFile = PsiManager.getInstance(project).findFile(vf) as? YAMLFile ?: return
+        // Resolve PSI inside the write action: findFile needs read access, which 2026.1 no longer
+        // grants implicitly on the EDT, and a write command supplies it.
         WriteCommandAction.runWriteCommandAction(project, "Edit Service '${node.service.name}'", null, {
+            val yamlFile = PsiManager.getInstance(project).findFile(vf) as? YAMLFile
+                ?: return@runWriteCommandAction
             ServiceFieldWriter.apply(project, yamlFile, node.service.name, edits)
         })
         refresh()
@@ -281,8 +284,9 @@ class StackDoctorPanel(private val project: Project) : JPanel(BorderLayout()) {
         list: List<Pair<String, HealthcheckGenerator.Healthcheck>>,
     ) {
         val vf = LocalFileSystem.getInstance().findFileByPath(analysis.project.filePath) ?: return
-        val yamlFile = PsiManager.getInstance(project).findFile(vf) as? YAMLFile ?: return
         WriteCommandAction.runWriteCommandAction(project, "Add Healthchecks", null, {
+            val yamlFile = PsiManager.getInstance(project).findFile(vf) as? YAMLFile
+                ?: return@runWriteCommandAction
             HealthcheckWriter.apply(project, yamlFile, list)
         })
     }
